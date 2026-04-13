@@ -639,26 +639,6 @@ async function renderSettingsPage() {
     }, 900);
   });
 
-  document.getElementById('clearLogsBtn').addEventListener('click', async () => {
-    if (!confirm('Clear all ticket logs? This cannot be undone.')) return;
-    await api('/api/tickets', { method: 'DELETE' });
-    toast.show('Ticket logs cleared', 'success');
-  });
-
-  document.getElementById('testTicketBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('testTicketBtn');
-    btn.disabled = true;
-    const original = btn.textContent;
-    btn.innerHTML = '<span class="spinner"></span> Creating...';
-    try {
-      const r = await api('/api/test/create-ticket', { method: 'POST' });
-      toast.show(`Test ticket created${r.id ? ' (#' + r.id + ')' : ''}`, 'success');
-    } catch (err) {
-      toast.show('Failed: ' + err.message, 'error');
-    } finally {
-      btn.disabled = false; btn.textContent = original;
-    }
-  });
 }
 
 // Route by hash on load
