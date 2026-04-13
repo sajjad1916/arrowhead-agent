@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arrowhead Intake Agent — Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Open+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="login-body">
+  <div class="login-grid">
+
+    <!-- Brand panel -->
+    <aside class="login-brand">
+      <div class="login-brand-stripe"></div>
+      <div class="login-brand-bg-grid" aria-hidden="true"></div>
+      <div class="login-brand-shape shape-1" aria-hidden="true"></div>
+      <div class="login-brand-shape shape-2" aria-hidden="true"></div>
+
+      <header class="login-brand-top">
+        <img class="login-brand-logo"
+             src="https://choosearrowhead.com/wp-content/uploads/2026/01/logo-header.png"
+             alt="Arrowhead Asset Services"
+             onerror="this.style.display='none'; document.getElementById('brand-fallback').style.display='block';" />
+        <div id="brand-fallback" class="login-brand-logo-fallback" style="display:none;">ARROWHEAD</div>
+      </header>
+
+      <div class="login-brand-center">
+        <div class="login-brand-eyebrow">
+          <span class="login-brand-dot"></span>
+          Intake Agent
+        </div>
+        <h1 class="login-brand-heading">
+          Every message<br />becomes <span class="accent">a ticket.</span>
+        </h1>
+        <p class="login-brand-tagline">
+          Forwarded texts. Forwarded emails. Calls summarized in two lines.
+          Parsed, matched, and routed to your Monday.com board — nothing silent,
+          nothing dropped.
+        </p>
+
+        <ul class="login-brand-list">
+          <li><span class="li-mark">✓</span> AI-parsed into structured fields</li>
+          <li><span class="li-mark">✓</span> Fuzzy-matched against your master property listing</li>
+          <li><span class="li-mark">✓</span> Round-robin assigned with ASAP escalation</li>
+        </ul>
+      </div>
+
+      <footer class="login-brand-foot">
+        <span class="foot-meta">Houston, TX</span>
+        <span class="foot-meta">choosearrowhead.com</span>
+      </footer>
+    </aside>
+
+    <!-- Form panel -->
+    <main class="login-form-panel">
+      <div class="login-form-card">
+
+        <div class="login-mobile-logo">
+          <img src="https://choosearrowhead.com/wp-content/uploads/2026/01/logo-header.png"
+               alt="Arrowhead"
+               onerror="this.style.display='none';" />
+        </div>
+
+        <div class="login-form-header">
+          <div class="login-eyebrow">
+            <span class="login-dot"></span>
+            Welcome back
+          </div>
+          <h2 class="login-form-title">Sign in to continue</h2>
+          <p class="login-form-sub">Credentials are pre-filled — just click sign in.</p>
+        </div>
+
+        <form id="loginForm" class="login-form" autocomplete="off">
+          <div class="login-field">
+            <label for="username">Username</label>
+            <input id="username" type="text" value="arrowhead-admin" autocomplete="off" spellcheck="false" />
+          </div>
+
+          <div class="login-field">
+            <label for="password">
+              Password
+              <button type="button" id="togglePw" class="pw-toggle" aria-label="Toggle password visibility">Hide</button>
+            </label>
+            <input id="password" type="text" value="" autocomplete="off" spellcheck="false" />
+          </div>
+
+          <button type="submit" id="submitBtn" class="btn btn-primary btn-full btn-signin">
+            <span class="btn-signin-label">Sign in</span>
+            <span class="btn-signin-arrow">→</span>
+          </button>
+
+          <div id="loginError" class="login-error" style="display:none;"></div>
+        </form>
+
+        <div class="login-footnote">
+          Credentials auto-generated on first run. You can change them in Settings.
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script>
+    (async () => {
+      try {
+        const r = await fetch('/api/login-hint');
+        const j = await r.json();
+        document.getElementById('username').value = j.username || 'arrowhead-admin';
+        document.getElementById('password').value = j.password || '';
+      } catch (_) {}
+    })();
+
+    const pwInput = document.getElementById('password');
+    const pwToggle = document.getElementById('togglePw');
+    let pwVisible = true;
+    pwToggle.addEventListener('click', () => {
+      pwVisible = !pwVisible;
+      pwInput.type = pwVisible ? 'text' : 'password';
+      pwToggle.textContent = pwVisible ? 'Hide' : 'Show';
+    });
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+      const errEl = document.getElementById('loginError');
+      const btn = document.getElementById('submitBtn');
+      errEl.style.display = 'none';
+      btn.disabled = true;
+      btn.classList.add('loading');
+      try {
+        const r = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const j = await r.json();
+        if (!r.ok) throw new Error(j.error || 'Login failed');
+        localStorage.setItem('arrowhead_token', j.token);
+        window.location.href = '/dashboard';
+      } catch (err) {
+        errEl.textContent = err.message;
+        errEl.style.display = 'block';
+        btn.disabled = false;
+        btn.classList.remove('loading');
+      }
+    });
+  </script>
+</body>
+</html>

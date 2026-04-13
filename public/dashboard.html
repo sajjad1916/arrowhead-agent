@@ -1,0 +1,320 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Arrowhead Intake Agent</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700;800&family=Open+Sans:wght@400;500;600;700&family=Source+Sans+3:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/style.css" />
+</head>
+<body class="app-minimal">
+
+  <header class="topbar">
+    <!-- Row 1: identity + demo indicator + primary action -->
+    <div class="topbar-inner">
+      <a href="#dashboard" data-route="dashboard" class="topbar-brand">
+        <img src="https://choosearrowhead.com/wp-content/uploads/2026/01/logo-header.png"
+             alt="Arrowhead"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';" />
+        <span class="topbar-brand-fallback" style="display:none;">ARROWHEAD</span>
+        <span class="topbar-divider">·</span>
+        <span class="topbar-label">Intake Agent</span>
+      </a>
+
+      <div class="topbar-center">
+        <span id="demoModeIndicator" class="demo-indicator" hidden>
+          <span class="demo-indicator-dot"></span>
+          <span class="demo-indicator-text">Demo mode — tickets simulated</span>
+        </span>
+      </div>
+
+      <div class="topbar-actions">
+        <button id="openTestBtn" class="btn btn-primary btn-test" type="button">
+          <svg class="btn-test-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-3 10h6l-3 10"/></svg>
+          Test Agent
+        </button>
+
+        <div class="menu-wrap">
+          <button id="menuToggle" class="icon-btn" type="button" aria-label="Account menu" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
+          </button>
+          <div id="menu" class="menu" hidden>
+            <div class="menu-header" id="menuUsername">arrowhead-admin</div>
+            <div class="menu-divider"></div>
+            <button id="logoutBtn" class="menu-item menu-item-danger" type="button">Log out</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Row 2: section tabs -->
+    <nav class="topbar-tabs" aria-label="Primary">
+      <div class="topbar-tabs-inner">
+        <a href="#dashboard" data-route="dashboard" class="tab">Home</a>
+        <a href="#tickets" data-route="tickets" class="tab">Tickets</a>
+        <a href="#properties" data-route="properties" class="tab">Properties</a>
+        <a href="#assignment" data-route="assignment" class="tab">Rules</a>
+        <a href="#settings" data-route="settings" class="tab">Connections</a>
+      </div>
+    </nav>
+  </header>
+
+  <main class="page">
+    <section id="pageRoot" class="page-inner"></section>
+  </main>
+
+  <!-- Test Agent modal -->
+  <div id="testModal" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="testModalTitle">
+      <header class="modal-header">
+        <div>
+          <div class="modal-eyebrow">Simulate incoming message</div>
+          <h2 id="testModalTitle" class="modal-title">Test Agent</h2>
+        </div>
+        <button id="modalCloseBtn" class="modal-close" aria-label="Close">×</button>
+      </header>
+
+      <div class="modal-body">
+        <div id="composeView" class="compose-view">
+          <div class="source-toggle" role="tablist" aria-label="Message source">
+            <button type="button" class="source-btn active" data-source="email" role="tab">
+              <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+              Email
+            </button>
+            <button type="button" class="source-btn" data-source="sms" role="tab">
+              <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+              SMS
+            </button>
+          </div>
+
+          <label class="field-label">Quick templates</label>
+          <div id="modalTemplates" class="template-chips"></div>
+
+          <label class="field-label">Message</label>
+          <textarea id="modalMessage" class="textarea" rows="7" placeholder="Pick a template above, or paste any message here..."></textarea>
+          <div class="compose-hint muted">Tip: press <kbd>⌘</kbd>+<kbd>Enter</kbd> to run</div>
+        </div>
+
+        <div id="modalPipeline" class="pipeline-view-modal" hidden>
+          <div id="modalPipelineSteps" class="pipeline-steps"></div>
+        </div>
+
+        <div id="modalSuccess" class="success-view" hidden>
+          <div class="success-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+          </div>
+          <h3 class="success-title">Ticket created</h3>
+          <div id="successSummary" class="success-summary"></div>
+          <div class="success-actions">
+            <a id="successMondayLink" class="btn btn-primary" href="#" target="_blank" rel="noopener" hidden>View on Monday.com →</a>
+            <button id="successAnotherBtn" type="button" class="btn btn-ghost">Run another</button>
+          </div>
+        </div>
+      </div>
+
+      <footer class="modal-footer">
+        <button id="modalCancelBtn" type="button" class="btn btn-cancel">Close</button>
+        <button id="modalRunBtn" type="button" class="btn btn-primary">Run Test</button>
+      </footer>
+    </div>
+  </div>
+
+  <div id="toastRoot" class="toast-root" aria-live="polite"></div>
+
+  <!-- ================================================
+       Templates — minimal home + admin pages (deferred)
+       ================================================ -->
+
+  <template id="tpl-dashboard">
+    <!-- Hero: simple status with a pointer to the real CRM -->
+    <div class="hero">
+      <div id="statusDot" class="status-dot running"></div>
+      <div class="hero-content">
+        <div class="hero-eyebrow">Agent status</div>
+        <h1 class="hero-title" id="heroTitle">Running</h1>
+        <p class="hero-sub" id="heroSub">Connected to Monday.com. Forward a message to create a ticket.</p>
+      </div>
+      <a id="mondayLink" class="hero-link" href="https://getsagan-company.monday.com/boards/5027768579" target="_blank" rel="noopener">
+        Open board on Monday.com
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+      </a>
+    </div>
+
+    <!-- Compact stats strip — single line, pill-style -->
+    <div class="stats-strip" id="statsStrip"></div>
+
+    <!-- Tiny activity list -->
+    <div class="activity">
+      <div class="activity-head">
+        <div class="activity-title">Recent</div>
+        <div class="activity-meta" id="activityMeta"></div>
+      </div>
+      <ul id="activityList" class="activity-list"></ul>
+      <a href="#tickets" data-route="tickets" class="activity-footer" id="activityFooter" hidden>See all tickets →</a>
+    </div>
+  </template>
+
+  <template id="tpl-tickets">
+<div class="section">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2>All tickets</h2>
+          <p class="section-sub muted" id="ticketsMeta">—</p>
+        </div>
+        <div class="filters">
+          <input id="ticketSearch" class="input input-sm" placeholder="Search tickets..." />
+          <select id="fUrgency" class="select select-sm">
+            <option value="">All urgencies</option>
+            <option value="normal">Normal</option>
+            <option value="urgent">Urgent</option>
+            <option value="asap">ASAP</option>
+          </select>
+          <select id="fFlag" class="select select-sm">
+            <option value="">All flags</option>
+            <option value="ok">OK</option>
+            <option value="location_not_found">Location Not Found</option>
+            <option value="needs_review">Needs Review</option>
+            <option value="needs_assignment">Needs Assignment</option>
+          </select>
+          <select id="fSource" class="select select-sm">
+            <option value="">All sources</option>
+            <option value="sms">SMS</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Date</th><th>Ticket</th><th>Client</th><th>Property</th><th>Work</th><th>Urgency</th><th>Assignee</th><th>Flag</th><th>Source</th>
+            </tr>
+          </thead>
+          <tbody id="ticketsTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="ticketsPager" hidden>
+        <button id="ticketsPrev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+        <span class="pager-info" id="ticketsPagerInfo">—</span>
+        <button id="ticketsNext" class="btn btn-ghost btn-sm" type="button">Next →</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-assignment">
+<div class="section">
+      <div class="section-header"><h2>Assignment rules</h2></div>
+      <label class="field-label">Team members (round-robin)</label>
+      <div id="teamMembers" class="chips-editable"></div>
+      <div class="row">
+        <input id="newMember" class="input" placeholder="Add team member..." />
+        <button id="addMemberBtn" class="btn btn-secondary">Add</button>
+      </div>
+
+      <label class="field-label">Current round-robin position</label>
+      <div class="muted" id="currentIdx">—</div>
+
+      <label class="field-label">Escalation contact</label>
+      <input id="escalationTo" class="input" />
+
+      <label class="field-label">Escalation keywords</label>
+      <div id="escalationKeywords" class="chips-editable"></div>
+      <div class="row">
+        <input id="newKeyword" class="input" placeholder="Add keyword..." />
+        <button id="addKeywordBtn" class="btn btn-secondary">Add</button>
+      </div>
+
+      <div class="row">
+        <button id="saveAssignmentBtn" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-properties">
+<div class="section">
+      <div class="section-header">
+        <div class="section-title-group">
+          <h2>Properties</h2>
+          <p class="section-sub">Live mirror of your Monday.com <strong>Master Property Listing</strong>. Updates automatically when you add or edit a property on the board — no refresh needed.</p>
+        </div>
+        <div class="filters">
+          <input id="propSearch" class="input" placeholder="Search properties..." />
+          <button id="refreshCacheBtn" class="btn btn-ghost btn-sm" title="Force a full resync from Monday.com (normally automatic)">Force resync</button>
+          <a href="https://getsagan-company.monday.com/boards/5027768585" target="_blank" rel="noopener" class="btn-monday-link">
+            Open board on Monday.com
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
+          </a>
+        </div>
+      </div>
+      <div class="cache-health" id="cacheHealth">
+        <span class="cache-health-dot" id="cacheHealthDot"></span>
+        <span class="cache-health-text" id="cacheHealthText">—</span>
+        <span class="cache-health-meta muted" id="cacheMeta">—</span>
+      </div>
+      <div class="table-wrap">
+        <table class="data-table">
+          <thead>
+            <tr><th>Property</th><th>Client</th><th>Address</th><th>Manager</th><th>Phone</th></tr>
+          </thead>
+          <tbody id="propTableBody"></tbody>
+        </table>
+      </div>
+      <div class="pager" id="propPager" hidden>
+        <button id="propPrev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+        <span class="pager-info" id="propPagerInfo">—</span>
+        <button id="propNext" class="btn btn-ghost btn-sm" type="button">Next →</button>
+      </div>
+    </div>
+  </template>
+
+  <template id="tpl-settings">
+<div class="section">
+      <div class="section-header"><h2>Connections</h2></div>
+
+      <div class="setting-row">
+        <div class="setting-meta">
+          <div class="setting-title">Demo mode</div>
+          <div class="muted">When on, the agent simulates tickets instead of sending them to Monday.com. Use for testing without polluting the real board.</div>
+        </div>
+        <label class="switch">
+          <input id="demoToggle" type="checkbox" />
+          <span class="switch-slider"></span>
+        </label>
+      </div>
+
+      <div class="section-divider"></div>
+
+      <h3>Service status</h3>
+      <div class="conn-grid" id="connGrid"></div>
+
+      <div class="section-divider"></div>
+      <h3>Credentials</h3>
+      <div class="cred-row">
+        <span class="muted">Username:</span>
+        <strong id="currentUser">—</strong>
+        <button class="btn-copy" data-copy-target="currentUser" title="Copy username">Copy</button>
+      </div>
+      <div class="cred-row">
+        <span class="muted">Password:</span>
+        <code id="currentPassword">—</code>
+        <button class="btn-copy" data-copy-target="currentPassword" title="Copy password">Copy</button>
+      </div>
+      <div class="row">
+        <button id="regenPwdBtn" class="btn btn-secondary">Regenerate password</button>
+      </div>
+
+      <div class="section-divider"></div>
+      <h3 class="danger">Danger zone</h3>
+      <div class="row">
+        <button id="clearLogsBtn" class="btn btn-danger">Clear all ticket logs</button>
+        <button id="testTicketBtn" class="btn btn-secondary">Create test ticket on Monday</button>
+      </div>
+    </div>
+  </template>
+
+  <script src="/js/demo.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

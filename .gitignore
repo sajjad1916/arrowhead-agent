@@ -1,0 +1,11 @@
+node_modules/
+.env
+data/auth.json
+data/sessions.json
+data/tickets-log.json
+data/property-cache.json
+data/settings.json
+data/assignment-config.json
+.DS_Store
+*.log
+*.md
