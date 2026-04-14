@@ -140,9 +140,12 @@ async function runPipeline({ message, source }) {
   });
 
   // Step 4: Assignment
+  // Pass client name so the assigner can check for returning customers
+  const clientName = matchResult.match?.client_name || parsed.client_name || '';
   const assignResult = assigner.assign({
     message: cleanedMessage,
     urgency: parsed.urgency,
+    clientName,
   });
   if (assignResult.needsAssignment) flag = 'needs_assignment';
 
@@ -154,6 +157,7 @@ async function runPipeline({ message, source }) {
     data: {
       assignedTo: assignResult.assignedTo,
       escalated: assignResult.escalated,
+      returning: assignResult.returning || false,
     },
   });
 

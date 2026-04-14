@@ -24,7 +24,7 @@ router.post('/twilio', async (req, res) => {
   res.send('<Response/>');
 });
 
-// Email webhook (stubbed)
+// Email webhook (legacy/generic)
 router.post('/email', async (req, res) => {
   const { body, from, subject } = req.body || {};
   logger.info(`Email webhook hit — from=${from}, subject="${subject}"`);
@@ -35,6 +35,53 @@ router.post('/email', async (req, res) => {
     logger.error('Email webhook pipeline error:', err.message);
   }
   res.json({ ok: true });
+});
+
+// ---------- AgentMail webhook ----------
+// Receives incoming emails from AgentMail (arrowhead@agentmail.to).
+// Payload: { event_type: "message.received", message: { from, to, subject, text, html, ... } }
+router.post('/agentmail', async (req, res) => {
+  // Respond 200 immediately — AgentMail retries on slow responses
+  res.json({ ok: true });
+
+  const payload = req.body || {};
+  const eventType = payload.event_type;
+
+  if (eventType !== 'message.received') {
+    logger.info(`AgentMail webhook: ignoring event type "${eventType}"`);
+    return;
+  }
+
+  const msg = payload.message || {};
+  const from = msg.from || '';
+  const subject = msg.subject || '';
+  const textBody = msg.text || '';
+  const htmlBody = msg.html || '';
+
+  logger.info(`AgentMail incoming — from="${from}", subject="${subject}", textLen=${textBody.length}, htmlLen=${htmlBody.length}`);
+
+  // Build the message to parse: prefer text body, fall back to subject + text extraction from HTML
+  let emailContent = textBody;
+  if (!emailContent && htmlBody) {
+    // Strip HTML tags for a rough text extraction
+    emailContent = htmlBody.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  }
+  if (!emailContent) {
+    logger.warn('AgentMail webhook: empty message body, skipping.');
+    return;
+  }
+
+  // Prepend subject as context if available (mimics forwarded email format)
+  if (subject) {
+    emailContent = `Subject: ${subject}\nFrom: ${from}\n\n${emailContent}`;
+  }
+
+  try {
+    const result = await pipeline.runPipeline({ message: emailContent, source: 'email' });
+    logger.info(`AgentMail pipeline complete — ticket=${result.ticket?.id}, flag=${result.ticket?.flag}`);
+  } catch (err) {
+    logger.error('AgentMail pipeline error:', err.message);
+  }
 });
 
 // ---------- Monday.com Properties webhook ----------

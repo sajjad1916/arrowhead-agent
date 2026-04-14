@@ -2,7 +2,7 @@
 
 const state = {
   token: localStorage.getItem('arrowhead_token'),
-  route: 'dashboard',
+  route: 'tickets',
 };
 
 if (!state.token) {
@@ -83,7 +83,7 @@ document.addEventListener('keydown', (e) => {
 
 // ---------- Global click: routes + copy buttons ----------
 document.addEventListener('click', (e) => {
-  const copyBtn = e.target.closest('.btn-copy');
+  const copyBtn = e.target.closest('.btn-copy, .btn-copy-sm, .tp-copy');
   if (copyBtn) {
     copyFromTarget(copyBtn.dataset.copyTarget);
     return;
@@ -115,28 +115,34 @@ function setActiveTab(route) {
 const pageCleanups = [];
 function onPageExit(fn) { pageCleanups.push(fn); }
 
+// Scroll position memory per route
+const scrollPositions = {};
+
 async function navigate(route) {
+  // Save scroll position of the page we're leaving
+  if (state.route) scrollPositions[state.route] = window.scrollY;
+
   // Tear down whatever the previous page installed.
   while (pageCleanups.length) {
     try { pageCleanups.pop()(); } catch (_) {}
   }
+  // Redirect removed routes to tickets
+  if (route === 'dashboard' || route === 'properties') route = 'tickets';
   state.route = route;
   setActiveTab(route);
-  if (route === 'dashboard') {
-    renderTemplate('tpl-dashboard');
-    await renderDashboardPage();
-  } else if (route === 'tickets') {
+  if (route === 'tickets') {
     renderTemplate('tpl-tickets');
     await renderTicketsPage();
   } else if (route === 'assignment') {
     renderTemplate('tpl-assignment');
     await renderAssignmentPage();
-  } else if (route === 'properties') {
-    renderTemplate('tpl-properties');
-    await renderPropertiesPage();
   } else if (route === 'settings') {
     renderTemplate('tpl-settings');
     await renderSettingsPage();
+  }
+  // Restore scroll position if returning to a previously visited route
+  if (scrollPositions[route]) {
+    window.scrollTo(0, scrollPositions[route]);
   }
   // Refresh the top-bar demo indicator whenever the route changes too,
   // so if someone toggles demo-mode and navigates, it stays in sync.
@@ -153,19 +159,8 @@ document.getElementById('logoutBtn').addEventListener('click', async () => {
 // Initialize demo modal (runs once — handles re-open idempotency internally)
 window.demo.init();
 
-// ---------- Top-bar demo indicator ----------
+// ---------- Demo indicator + status ----------
 async function updateDemoIndicator() {
-  const el = document.getElementById('demoModeIndicator');
-  if (!el) return;
-  try {
-    const resp = await api('/api/settings');
-    const isDemo = !!(resp?.settings?.demo_mode);
-    el.hidden = !isDemo;
-    // Also reflect it on the <body> so pages can add subtle treatments
-    document.body.classList.toggle('is-demo', isDemo);
-  } catch (_) {
-    el.hidden = true;
-  }
   // Fill the account menu with the current username
   try {
     const hint = await api('/api/login-hint').catch(() => null);
@@ -176,35 +171,53 @@ async function updateDemoIndicator() {
 updateDemoIndicator();
 window.updateDemoIndicator = updateDemoIndicator;
 
-// ---------- Home (minimal status + recent list) ----------
-async function renderDashboardPage() {
-  await Promise.all([updateStatus(), updateActivity()]);
-}
-
+// Loads status, demo state, and agent contact info into the instruction panel
 async function updateStatus() {
   const dot = document.getElementById('statusDot');
   const title = document.getElementById('heroTitle');
   const sub = document.getElementById('heroSub');
+  const demoBadge = document.getElementById('demoIndicatorInline');
   if (!dot || !title) return;
   try {
     const resp = await api('/api/settings');
     const conn = resp.connections;
     const demo = resp.settings && resp.settings.demo_mode;
     const mondayOk = conn.monday && conn.monday_live;
+    const contact = resp.agent_contact || {};
+
+    // Status indicator
+    const hint = document.getElementById('demoHint');
     if (demo) {
       dot.className = 'status-dot warn';
       title.textContent = 'Demo mode';
-      sub.textContent = 'Tickets are simulated — not sent to Monday.com. Turn off in Connections to go live.';
+      sub.textContent = 'Tickets simulated — not sent to Monday.com';
+      if (hint) hint.hidden = false;
     } else if (mondayOk) {
       dot.className = 'status-dot running';
       title.textContent = 'Running';
-      sub.textContent = conn.openrouter
-        ? 'Connected to Monday.com · AI parser active · Forward a message to create a ticket.'
-        : 'Connected to Monday.com · Using offline parser · Forward a message to create a ticket.';
+      sub.textContent = 'Forward a text or email to create a ticket';
+      if (hint) hint.hidden = true;
     } else {
       dot.className = 'status-dot warn';
       title.textContent = 'Not connected';
-      sub.textContent = 'Monday.com connection is missing or invalid — open Connections in the menu.';
+      sub.textContent = 'Monday.com missing — check Integration tab';
+      if (hint) hint.hidden = true;
+    }
+
+    // Demo badge
+    if (demoBadge) demoBadge.hidden = !demo;
+    document.body.classList.toggle('is-demo', !!demo);
+
+    // Agent contact info
+    const emailEl = document.getElementById('contactEmail');
+    const phoneEl = document.getElementById('contactPhone');
+    if (emailEl && contact.email) {
+      document.getElementById('agentEmail').textContent = contact.email;
+      emailEl.hidden = false;
+    }
+    if (phoneEl && contact.phone) {
+      document.getElementById('agentPhone').textContent = contact.phone;
+      phoneEl.hidden = false;
     }
   } catch (err) {
     dot.className = 'status-dot err';
@@ -214,108 +227,53 @@ async function updateStatus() {
 }
 window.updateStatus = updateStatus;
 
-async function updateActivity() {
-  const list = document.getElementById('activityList');
-  const meta = document.getElementById('activityMeta');
-  const footer = document.getElementById('activityFooter');
-  const strip = document.getElementById('statsStrip');
-  if (!list) return;
-  try {
-    const [stats, recent] = await Promise.all([api('/api/stats'), api('/api/tickets/recent')]);
-
-    // Stats strip — compact one-line pills. Hidden when no tickets yet.
-    if (strip) {
-      if (!stats.total) {
-        strip.innerHTML = '';
-        strip.hidden = true;
-      } else {
-        strip.hidden = false;
-        strip.innerHTML = renderStatsStrip(stats);
-      }
-    }
-
-    if (meta) {
-      const parts = [];
-      if (stats.today) parts.push(`${stats.today} today`);
-      if (stats.week) parts.push(`${stats.week} this week`);
-      meta.textContent = parts.join(' · ');
-    }
-
-    if (!recent.length) {
-      list.innerHTML = `<li class="activity-empty">No tickets yet. Click <strong>Test Agent</strong> to try it.</li>`;
-      if (footer) footer.hidden = true;
-      return;
-    }
-    list.innerHTML = recent.slice(0, 7).map(activityRow).join('');
-    if (footer) footer.hidden = recent.length <= 7;
-  } catch (err) {
-    console.error('activity', err);
-  }
-}
-
+// ---------- Stats strip (used by tickets page) ----------
 function renderStatsStrip(stats) {
   const pills = [];
 
-  // Email / SMS breakdown
   pills.push(`<div class="pill">
     <span class="pill-label">Email</span><span class="pill-value">${stats.bySource?.email ?? 0}</span>
     <span class="pill-sep">·</span>
     <span class="pill-label">SMS</span><span class="pill-value">${stats.bySource?.sms ?? 0}</span>
   </div>`);
 
-  // Auto-routed vs flagged
   pills.push(`<div class="pill">
     <span class="pill-label">Auto-routed</span><span class="pill-value">${stats.autoRouted ?? 0}</span>
     ${stats.flagged > 0 ? `<span class="pill-sep">·</span>
       <span class="pill-label warn">Flagged</span><span class="pill-value warn">${stats.flagged}</span>` : ''}
   </div>`);
 
-  // Open on Monday (only if we were able to determine it)
   if (typeof stats.openOnMonday === 'number') {
     pills.push(`<div class="pill">
       <span class="pill-label">Open on Monday</span><span class="pill-value">${stats.openOnMonday}</span>
     </div>`);
   }
 
-  // Spend (if any tokens logged)
-  if (stats.tokens && stats.tokens.calls > 0) {
-    const cost = (stats.tokens.cost_usd || 0).toFixed(4).replace(/0+$/, '').replace(/\.$/, '');
-    pills.push(`<div class="pill">
-      <span class="pill-label">Spend</span><span class="pill-value">$${cost || '0'}</span>
-      <span class="pill-sep">·</span>
-      <span class="pill-label muted">${stats.tokens.calls} calls</span>
-    </div>`);
-  }
-
   return pills.join('');
 }
+
+async function updateStatsStrip() {
+  const strip = document.getElementById('statsStrip');
+  if (!strip) return;
+  try {
+    const stats = await api('/api/stats');
+    if (!stats.total) {
+      strip.innerHTML = '';
+      strip.hidden = true;
+    } else {
+      strip.hidden = false;
+      strip.innerHTML = renderStatsStrip(stats);
+    }
+  } catch (_) {}
+}
+
 window.refreshStatsAndRecent = () => {
   // Called after a successful pipeline run from demo.js
   updateStatus();
-  updateActivity();
+  updateStatsStrip();
+  // Reload the ticket table if we're on the tickets page
+  if (state.route === 'tickets' && window._reloadTickets) window._reloadTickets();
 };
-
-function activityRow(t) {
-  const urgencyCls = t.urgency === 'asap' ? 'asap' : t.urgency === 'urgent' ? 'urgent' : 'normal';
-  const href = t.monday_url || '#';
-  const external = t.monday_url ? ' target="_blank" rel="noopener"' : '';
-  return `<li class="activity-row">
-    <span class="ar-time">${fmtTimeShort(t.created_at)}</span>
-    <span class="ar-title"><a href="${href}"${external}>${escapeHtml(t.ticket_name)}</a></span>
-    <span class="ar-property">${escapeHtml(t.property || '—')}</span>
-    <span class="ar-assignee">${escapeHtml(t.assigned_to || '—')}</span>
-    <span class="ar-dot ar-dot-${urgencyCls}" title="${(t.urgency || 'normal').toUpperCase()}"></span>
-    ${t.flag !== 'ok' ? `<span class="ar-flag">${escapeHtml(t.flag.replace(/_/g, ' '))}</span>` : ''}
-  </li>`;
-}
-
-function fmtTimeShort(iso) {
-  const d = new Date(iso);
-  const now = new Date();
-  const sameDay = d.toDateString() === now.toDateString();
-  if (sameDay) return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-}
 
 function fmtDate(iso) {
   const d = new Date(iso);
@@ -326,23 +284,92 @@ function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+// Render editable field mapping: left = label input, right = column dropdown
+// boardColumns = array from /api/monday-columns/:id (may be empty if not loaded yet)
+function renderFieldMap(containerId, boardConfig, boardColumns, boardType) {
+  const el = document.getElementById(containerId);
+  if (!el || !boardConfig) { if (el) el.innerHTML = ''; return; }
+  const cols = boardColumns || [];
+  el.innerHTML =
+    `<div class="field-map-board">Board ID: ${escapeHtml(boardConfig.board_id)}</div>` +
+    `<div class="field-map-header">Display Label</div><div class="field-map-header">Monday.com Column</div>` +
+    boardConfig.columns.map((c) => {
+      // Label input (left side — editable)
+      const labelInput = `<input class="field-map-input" data-field="${escapeHtml(c.field)}" data-type="label" value="${escapeHtml(c.label || c.field)}" />`;
+      // Column dropdown (right side — select from board columns)
+      let colSelect;
+      if (cols.length) {
+        const options = `<option value="">— not mapped —</option>` +
+          cols.map((bc) => `<option value="${escapeHtml(bc.id)}" ${bc.id === c.column_id ? 'selected' : ''}>${escapeHtml(bc.title)} (${escapeHtml(bc.type)})</option>`).join('');
+        colSelect = `<select class="field-map-select" data-field="${escapeHtml(c.field)}" data-type="column">${options}</select>`;
+      } else {
+        colSelect = `<span class="field-map-col">${escapeHtml(c.column_id)}</span>`;
+      }
+      return `<div class="field-map-cell">${labelInput}</div><div class="field-map-cell">${colSelect}</div>`;
+    }).join('') +
+    `<div class="field-map-actions"><button class="btn btn-primary btn-sm field-map-save" data-board-type="${escapeHtml(boardType || '')}">Save mapping</button></div>`;
+}
+
 function urgencyBadge(u) {
   const cls = u === 'asap' ? 'badge-asap' : u === 'urgent' ? 'badge-urgent' : 'badge-normal';
   return `<span class="badge ${cls}">${(u || 'normal').toUpperCase()}</span>`;
 }
 
-function flagBadge(f) {
-  if (f === 'ok') return `<span class="badge badge-ok">OK</span>`;
-  const label = (f || 'unknown').replace(/_/g, ' ').toUpperCase();
-  return `<span class="badge badge-needs-review">${label}</span>`;
+function statusBadge(f) {
+  if (f === 'ok') return `<span class="badge badge-ok">Processed</span>`;
+  const label = (f || 'unknown').replace(/_/g, ' ');
+  const cls = f === 'location_not_found' ? 'badge-needs-review' : f === 'needs_assignment' ? 'badge-needs-review' : 'badge-needs-review';
+  return `<span class="badge ${cls}">${label.charAt(0).toUpperCase() + label.slice(1)}</span>`;
 }
 
-function ticketLink(t) {
-  if (t.monday_url) return `<a href="${t.monday_url}" target="_blank" rel="noopener">${escapeHtml(t.ticket_name)} ↗</a>`;
-  return escapeHtml(t.ticket_name);
+function sourceIcon(src) {
+  if (src === 'email') return `<svg class="feed-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>`;
+  if (src === 'sms') return `<svg class="feed-source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+  return '';
 }
 
-// ---------- Tickets page ----------
+// Field labels — loaded from settings, used in feed cards and elsewhere
+let fieldLabels = { properties: {}, quotes: {} };
+async function loadFieldLabels() {
+  try {
+    fieldLabels = await api('/api/field-labels');
+  } catch { /* use defaults */ }
+}
+
+function lbl(board, field, fallback) {
+  return (fieldLabels[board] && fieldLabels[board][field]) || fallback;
+}
+
+function feedCard(t) {
+  const urgencyCls = t.urgency === 'asap' ? 'feed-card-asap' : t.urgency === 'urgent' ? 'feed-card-urgent' : '';
+  const href = t.monday_url || '';
+  const linkOpen = href ? `<a href="${href}" target="_blank" rel="noopener" class="feed-card-link">` : '';
+  const linkClose = href ? '</a>' : '';
+  const propLabel = lbl('properties', 'client_name', 'Client');
+  return `<div class="feed-card ${urgencyCls}">
+    <div class="feed-card-left">
+      <div class="feed-card-source" title="${(t.source || '').toUpperCase()}" role="img" aria-label="Source: ${(t.source || '').toUpperCase()}">${sourceIcon(t.source)}</div>
+    </div>
+    <div class="feed-card-body">
+      <div class="feed-card-row1">
+        <span class="feed-card-title">${linkOpen}${escapeHtml(t.ticket_name)}${href ? ' ↗' : ''}${linkClose}</span>
+        <span class="feed-card-time">${fmtDate(t.created_at)}</span>
+      </div>
+      <div class="feed-card-row2">
+        ${t.property ? `<span class="feed-card-detail">${escapeHtml(t.property)}</span>` : ''}
+        ${t.client_name ? `<span class="feed-card-detail feed-card-client" title="${escapeHtml(propLabel)}">${escapeHtml(t.client_name)}</span>` : ''}
+        ${t.work_type ? `<span class="feed-card-detail feed-card-work">${escapeHtml(t.work_type)}</span>` : ''}
+      </div>
+      <div class="feed-card-row3">
+        ${statusBadge(t.flag)}
+        ${urgencyBadge(t.urgency)}
+        ${t.assigned_to ? `<span class="feed-card-assignee">${escapeHtml(t.assigned_to)}</span>` : ''}
+      </div>
+    </div>
+  </div>`;
+}
+
+// ---------- Tickets page (consolidated: status + stats + chronological feed) ----------
 async function renderTicketsPage() {
   const PAGE_SIZE = 50;
   const st = { page: 1 };
@@ -362,26 +389,19 @@ async function renderTicketsPage() {
 
     const resp = await api(`/api/tickets?${qs.toString()}`);
     const items = resp.items || [];
-    const tbody = document.getElementById('ticketsTableBody');
+    const feed = document.getElementById('ticketsFeed');
 
     document.getElementById('ticketsMeta').textContent =
-      resp.total === 0 ? 'No tickets yet.' : `${resp.total} ticket${resp.total === 1 ? '' : 's'} total`;
+      resp.total === 0 ? 'No requests yet' : `${resp.total} request${resp.total === 1 ? '' : 's'}`;
 
+    // Preserve scroll position during auto-refresh updates
+    const scrollY = window.scrollY;
     if (!items.length) {
-      tbody.innerHTML = '<tr><td colspan="9" class="empty-row">No tickets match filter.</td></tr>';
+      feed.innerHTML = `<div class="feed-empty">No requests match your filters. Click <strong>Test Agent</strong> to simulate one.</div>`;
     } else {
-      tbody.innerHTML = items.map((t) => `<tr>
-        <td>${fmtDate(t.created_at)}</td>
-        <td>${ticketLink(t)}</td>
-        <td>${escapeHtml(t.client_name || '—')}</td>
-        <td>${escapeHtml(t.property || '—')}</td>
-        <td>${escapeHtml(t.work_type || '—')}</td>
-        <td>${urgencyBadge(t.urgency)}</td>
-        <td>${escapeHtml(t.assigned_to || '—')}</td>
-        <td>${flagBadge(t.flag)}</td>
-        <td>${(t.source || '').toUpperCase()}</td>
-      </tr>`).join('');
+      feed.innerHTML = items.map(feedCard).join('');
     }
+    window.scrollTo(0, scrollY);
 
     // Pager
     const pager = document.getElementById('ticketsPager');
@@ -396,10 +416,13 @@ async function renderTicketsPage() {
 
   function reload() { st.page = 1; load(); }
 
+  // Expose reload for refreshStatsAndRecent (called after pipeline runs)
+  window._reloadTickets = reload;
+  onPageExit(() => { window._reloadTickets = null; });
+
   document.getElementById('fUrgency').addEventListener('change', reload);
   document.getElementById('fFlag').addEventListener('change', reload);
   document.getElementById('fSource').addEventListener('change', reload);
-  // Debounce search — users type fast and we don't want a round-trip per keystroke.
   let t;
   document.getElementById('ticketSearch').addEventListener('input', () => {
     clearTimeout(t);
@@ -407,7 +430,16 @@ async function renderTicketsPage() {
   });
   document.getElementById('ticketsPrev').addEventListener('click', () => { if (st.page > 1) { st.page--; load(); } });
   document.getElementById('ticketsNext').addEventListener('click', () => { st.page++; load(); });
-  await load();
+
+  // Load status hero, stats strip, labels, and feed in parallel
+  await Promise.all([updateStatus(), updateStatsStrip(), loadFieldLabels(), load()]);
+
+  // Auto-refresh: poll for new tickets every 15 seconds
+  const refreshTimer = setInterval(() => {
+    load();
+    updateStatsStrip();
+  }, 15000);
+  onPageExit(() => clearInterval(refreshTimer));
 }
 
 // ---------- Assignment page ----------
@@ -415,29 +447,23 @@ async function renderAssignmentPage() {
   let cfg = await api('/api/assignment-config');
 
   function renderChips() {
-    const tm = document.getElementById('teamMembers');
-    tm.innerHTML = cfg.team_members.map((m, i) => `<span class="chip">${escapeHtml(m)}<span class="chip-remove" data-kind="team" data-idx="${i}">✕</span></span>`).join('');
     const kw = document.getElementById('escalationKeywords');
-    kw.innerHTML = cfg.escalation_keywords.map((k, i) => `<span class="chip">${escapeHtml(k)}<span class="chip-remove" data-kind="kw" data-idx="${i}">✕</span></span>`).join('');
-    document.getElementById('currentIdx').textContent = `${cfg.current_index} → next: ${cfg.team_members[cfg.current_index % (cfg.team_members.length || 1)] || '(none)'}`;
-    document.getElementById('escalationTo').value = cfg.escalation_to || '';
+    kw.innerHTML = (cfg.escalation_keywords || []).map((k, i) => `<span class="chip">${escapeHtml(k)}<span class="chip-remove" data-kind="kw" data-idx="${i}">✕</span></span>`).join('');
   }
+
+  // Populate fields
+  document.getElementById('defaultAssignee').value = cfg.default_assignee || cfg.escalation_to || '';
+  document.getElementById('escalationTo').value = cfg.escalation_to || '';
   renderChips();
 
   document.getElementById('pageRoot').addEventListener('click', (e) => {
     const rm = e.target.closest('.chip-remove');
     if (!rm) return;
     const idx = parseInt(rm.dataset.idx, 10);
-    if (rm.dataset.kind === 'team') cfg.team_members.splice(idx, 1);
     if (rm.dataset.kind === 'kw') cfg.escalation_keywords.splice(idx, 1);
     renderChips();
   });
 
-  document.getElementById('addMemberBtn').addEventListener('click', () => {
-    const i = document.getElementById('newMember');
-    const v = i.value.trim();
-    if (v) { cfg.team_members.push(v); i.value = ''; renderChips(); }
-  });
   document.getElementById('addKeywordBtn').addEventListener('click', () => {
     const i = document.getElementById('newKeyword');
     const v = i.value.trim();
@@ -445,8 +471,8 @@ async function renderAssignmentPage() {
   });
 
   document.getElementById('saveAssignmentBtn').addEventListener('click', async () => {
+    cfg.default_assignee = document.getElementById('defaultAssignee').value.trim();
     cfg.escalation_to = document.getElementById('escalationTo').value.trim();
-    if (cfg.current_index >= cfg.team_members.length) cfg.current_index = 0;
     const saved = await api('/api/assignment-config', { method: 'PUT', body: JSON.stringify(cfg) });
     cfg = saved;
     renderChips();
@@ -454,194 +480,205 @@ async function renderAssignmentPage() {
   });
 }
 
-// ---------- Properties page ----------
-async function renderPropertiesPage() {
-  const PAGE_SIZE = 50;
-  const st = { page: 1, all: [], filtered: [], healthTimer: null };
-
-  function renderHealth(status) {
-    const dot = document.getElementById('cacheHealthDot');
-    const text = document.getElementById('cacheHealthText');
-    const meta = document.getElementById('cacheMeta');
-    if (!dot || !text || !meta) return;
-
-    // Three states:
-    //   live   = webhook received within the last 24h (source: 'webhook' or any source but with fresh webhook)
-    //   polled = cache is being kept fresh by the 1h timer but no webhook ever
-    //   stale  = webhook was healthy and has now gone silent >24h (actionable warning)
-    let state = 'polled';
-    let label = 'Polling · webhook not configured';
-    if (status.webhook_healthy) {
-      state = 'live';
-      label = `Live · webhook last fired ${humanAgo(status.last_webhook_ms)}`;
-    } else if (status.webhook_ever_received && !status.webhook_healthy) {
-      state = 'stale';
-      label = `Webhook silent for ${humanAgo(status.last_webhook_ms)} — check Monday settings`;
-    } else if (status.source === 'seed') {
-      state = 'seed';
-      label = 'Seed data · Monday not connected';
-    }
-
-    dot.className = `cache-health-dot cache-health-${state}`;
-    text.textContent = label;
-    meta.textContent = `${status.property_count} properties · updated ${fmtDate(status.updated_at)} · source: ${status.source}`;
-  }
-
-  function humanAgo(ms) {
-    if (ms === null || ms === undefined) return 'never';
-    const s = Math.floor(ms / 1000);
-    if (s < 60) return `${s}s ago`;
-    const m = Math.floor(s / 60);
-    if (m < 60) return `${m}m ago`;
-    const h = Math.floor(m / 60);
-    if (h < 24) return `${h}h ago`;
-    const d = Math.floor(h / 24);
-    return `${d}d ago`;
-  }
-
-  function applyFilter() {
-    const q = (document.getElementById('propSearch').value || '').toLowerCase().trim();
-    st.filtered = !q
-      ? st.all
-      : st.all.filter((p) =>
-          (`${p.name} ${p.client_name} ${p.address} ${p.property_manager}`).toLowerCase().includes(q)
-        );
-    st.page = 1;
-    renderTable();
-  }
-
-  function renderTable() {
-    const tbody = document.getElementById('propTableBody');
-    const total = st.filtered.length;
-    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    if (st.page > totalPages) st.page = totalPages;
-    const start = (st.page - 1) * PAGE_SIZE;
-    const slice = st.filtered.slice(start, start + PAGE_SIZE);
-
-    if (!slice.length) {
-      tbody.innerHTML = '<tr><td colspan="5" class="empty-row">No properties match search.</td></tr>';
-    } else {
-      tbody.innerHTML = slice.map((p) => `<tr>
-        <td>${escapeHtml(p.name)}</td>
-        <td>${escapeHtml(p.client_name || '—')}</td>
-        <td>${escapeHtml(p.address || '—')}</td>
-        <td>${escapeHtml(p.property_manager || '—')}</td>
-        <td>${escapeHtml(p.manager_phone || '—')}</td>
-      </tr>`).join('');
-    }
-
-    const pager = document.getElementById('propPager');
-    pager.hidden = totalPages <= 1;
-    document.getElementById('propPagerInfo').textContent =
-      `Showing ${total === 0 ? 0 : start + 1}–${Math.min(start + PAGE_SIZE, total)} of ${total}`;
-    document.getElementById('propPrev').disabled = st.page <= 1;
-    document.getElementById('propNext').disabled = st.page >= totalPages;
-  }
-
-  async function loadFull() {
-    const data = await api('/api/property-cache');
-    st.all = data.properties || [];
-    applyFilter();
-  }
-
-  async function loadHealth() {
-    try {
-      const status = await api('/api/property-cache/status');
-      renderHealth(status);
-    } catch { /* keep previous render */ }
-  }
-
-  // Debounced search
-  let t;
-  document.getElementById('propSearch').addEventListener('input', () => {
-    clearTimeout(t);
-    t = setTimeout(applyFilter, 150);
-  });
-  document.getElementById('propPrev').addEventListener('click', () => { if (st.page > 1) { st.page--; renderTable(); } });
-  document.getElementById('propNext').addEventListener('click', () => { st.page++; renderTable(); });
-
-  document.getElementById('refreshCacheBtn').addEventListener('click', async () => {
-    const btn = document.getElementById('refreshCacheBtn');
-    const originalText = btn.textContent;
-    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Resyncing...';
-    try {
-      const result = await api('/api/property-cache/refresh', { method: 'POST' });
-      await Promise.all([loadFull(), loadHealth()]);
-      toast.show(`Resync complete — ${result.properties.length} properties`, 'success');
-    } catch (err) {
-      toast.show('Resync failed: ' + err.message, 'error');
-    } finally {
-      btn.disabled = false; btn.textContent = originalText;
-    }
-  });
-
-  await Promise.all([loadFull(), loadHealth()]);
-
-  // Keep the cache-health badge live without re-fetching the full property list.
-  // Cheap: one GET every 15s that returns ~100 bytes.
-  st.healthTimer = setInterval(loadHealth, 15000);
-  onPageExit(() => clearInterval(st.healthTimer));
-}
-
-// ---------- Settings (Connections) page ----------
+// ---------- Settings (Integration) page ----------
 async function renderSettingsPage() {
-  const resp = await api('/api/settings');
-  const conn = resp.connections;
-  const settings = resp.settings || {};
-  const auth = await api('/api/login-hint').catch(() => null);
+  // --- Monday.com connect flow ---
+  let mondayBoards = [];
 
-  // Demo mode toggle
-  const demoToggle = document.getElementById('demoToggle');
-  if (demoToggle) {
-    demoToggle.checked = !!settings.demo_mode;
-    demoToggle.addEventListener('change', async (e) => {
-      try {
-        await api('/api/settings', { method: 'PUT', body: JSON.stringify({ demo_mode: e.target.checked }) });
-        toast.show(e.target.checked ? 'Demo mode ON — tickets simulated' : 'Demo mode OFF — tickets will go to Monday', e.target.checked ? 'info' : 'success');
-        updateDemoIndicator();
-        // Also refresh the home status hero next time we render
-      } catch (err) {
-        toast.show('Failed: ' + err.message, 'error');
-        e.target.checked = !e.target.checked;
+  let inputBoardCols = [];
+  let outputBoardCols = [];
+
+  async function loadBoardColumns(boardId) {
+    if (!boardId) return [];
+    try {
+      const data = await api(`/api/monday-columns/${boardId}`);
+      return data.columns || [];
+    } catch { return []; }
+  }
+
+  async function loadMondayState() {
+    try {
+      const cfg = await api('/api/monday-config');
+      if (cfg.has_key) {
+        document.getElementById('mondayConnect').hidden = true;
+        document.getElementById('mondayConnected').hidden = false;
+        try {
+          const data = await api('/api/monday-boards');
+          mondayBoards = data.boards || [];
+        } catch { mondayBoards = []; }
+        populateBoardSelect('mondayInputBoard', mondayBoards, cfg.input_board_id);
+        populateBoardSelect('mondayOutputBoard', mondayBoards, cfg.output_board_id);
+        // Load board columns and render editable field maps
+        if (cfg.input_board_id) {
+          inputBoardCols = await loadBoardColumns(cfg.input_board_id);
+          renderFieldMap('fieldMapProperties', cfg.properties, inputBoardCols, 'properties');
+        }
+        if (cfg.output_board_id) {
+          outputBoardCols = await loadBoardColumns(cfg.output_board_id);
+          renderFieldMap('fieldMapQuotes', cfg.quotes, outputBoardCols, 'quotes');
+        }
+      } else {
+        document.getElementById('mondayConnect').hidden = false;
+        document.getElementById('mondayConnected').hidden = true;
       }
-    });
+    } catch (_) {}
   }
 
-  const connGrid = document.getElementById('connGrid');
-  const items = [
-    { key: 'monday', label: 'Monday.com', connected: conn.monday, live: conn.monday_live },
-    { key: 'openrouter', label: 'OpenRouter (AI)', connected: conn.openrouter },
-    { key: 'twilio', label: 'Twilio SMS', connected: conn.twilio },
-    { key: 'gmail', label: 'Gmail', connected: conn.gmail },
-  ];
-  connGrid.innerHTML = items.map((i) => {
-    const cls = i.connected ? 'connected' : 'disconnected';
-    let status = i.connected ? 'Configured' : 'Not configured';
-    if (i.key === 'monday' && i.connected) status = i.live ? 'Connected' : 'Key set but test failed';
-    return `<div class="conn-card ${cls}">
-      <div class="conn-name">${i.label}</div>
-      <div class="conn-status">${status}</div>
-    </div>`;
-  }).join('');
-
-  if (auth) {
-    document.getElementById('currentUser').textContent = auth.username;
-    document.getElementById('currentPassword').textContent = auth.password;
+  function populateBoardSelect(selectId, boards, selectedId) {
+    const sel = document.getElementById(selectId);
+    sel.innerHTML = '<option value="">Select a board...</option>' +
+      boards.map((b) => `<option value="${escapeHtml(b.id)}" ${b.id === selectedId ? 'selected' : ''}>${escapeHtml(b.name)} (${b.items_count || 0} items)</option>`).join('');
   }
 
-  document.getElementById('regenPwdBtn').addEventListener('click', async () => {
-    if (!confirm('Regenerate password? You will need to log in again.')) return;
-    await api('/api/regenerate-password', { method: 'POST' });
-    toast.show('Password regenerated — logging out', 'info');
-    setTimeout(() => {
-      localStorage.removeItem('arrowhead_token');
-      window.location.href = '/';
-    }, 900);
+  // Connect button
+  document.getElementById('mondayConnectBtn').addEventListener('click', async () => {
+    const keyInput = document.getElementById('mondayApiKey');
+    const statusEl = document.getElementById('mondayConnectStatus');
+    const btn = document.getElementById('mondayConnectBtn');
+    const keyVal = keyInput.value.trim();
+    if (!keyVal) { statusEl.textContent = 'Enter an API key.'; return; }
+    btn.disabled = true; statusEl.textContent = 'Connecting...';
+    try {
+      const result = await api('/api/monday-connect', { method: 'POST', body: JSON.stringify({ api_key: keyVal }) });
+      toast.show('Connected to Monday.com' + (result.user?.name ? ` as ${result.user.name}` : ''), 'success');
+      await loadMondayState();
+    } catch (err) {
+      statusEl.textContent = 'Failed: ' + err.message;
+    } finally { btn.disabled = false; }
   });
 
+  // Disconnect button
+  document.getElementById('mondayDisconnectBtn').addEventListener('click', async () => {
+    if (!confirm('Disconnect Monday.com? Board selections will be cleared.')) return;
+    await api('/api/monday-disconnect', { method: 'POST' });
+    toast.show('Monday.com disconnected', 'info');
+    document.getElementById('mondayConnect').hidden = false;
+    document.getElementById('mondayConnected').hidden = true;
+    document.getElementById('mondayApiKey').value = '';
+    document.getElementById('fieldMapProperties').innerHTML = '';
+    document.getElementById('fieldMapQuotes').innerHTML = '';
+  });
+
+  // Board selection change — save + load columns + render editable map
+  async function onBoardChange(selectId, boardType) {
+    const boardId = document.getElementById(selectId).value;
+    const body = {};
+    if (boardType === 'input') body.input_board_id = boardId;
+    else body.output_board_id = boardId;
+    await api('/api/monday-boards', { method: 'PUT', body: JSON.stringify(body) });
+    const cfg = await api('/api/monday-config');
+    if (boardType === 'input') {
+      inputBoardCols = boardId ? await loadBoardColumns(boardId) : [];
+      renderFieldMap('fieldMapProperties', cfg.properties, inputBoardCols, 'properties');
+    } else {
+      outputBoardCols = boardId ? await loadBoardColumns(boardId) : [];
+      renderFieldMap('fieldMapQuotes', cfg.quotes, outputBoardCols, 'quotes');
+    }
+    toast.show(`${boardType === 'input' ? 'Input' : 'Output'} board updated`, 'success', { duration: 2000 });
+  }
+  document.getElementById('mondayInputBoard').addEventListener('change', () => onBoardChange('mondayInputBoard', 'input'));
+  document.getElementById('mondayOutputBoard').addEventListener('change', () => onBoardChange('mondayOutputBoard', 'output'));
+
+  // Save field mapping (delegated click — buttons are inside dynamic content)
+  document.getElementById('pageRoot').addEventListener('click', async (e) => {
+    const saveBtn = e.target.closest('.field-map-save');
+    if (!saveBtn) return;
+    const boardType = saveBtn.dataset.boardType;
+    const container = saveBtn.closest('.field-map') || saveBtn.parentElement.parentElement;
+    const labels = {};
+    const columnIds = {};
+    container.querySelectorAll('.field-map-input').forEach((inp) => {
+      labels[inp.dataset.field] = inp.value.trim();
+    });
+    container.querySelectorAll('.field-map-select').forEach((sel) => {
+      if (sel.value) columnIds[sel.dataset.field] = sel.value;
+    });
+    saveBtn.disabled = true;
+    try {
+      await api('/api/monday-field-config', {
+        method: 'PUT',
+        body: JSON.stringify({ board_type: boardType, labels, column_ids: Object.keys(columnIds).length ? columnIds : undefined }),
+      });
+      toast.show('Field mapping saved', 'success');
+    } catch (err) {
+      toast.show('Save failed: ' + err.message, 'error');
+    } finally { saveBtn.disabled = false; }
+  });
+
+  await loadMondayState();
+
+  // ---------- Parser Prompt Editor ----------
+  const promptEl = document.getElementById('parserPrompt');
+  const promptVarsEl = document.getElementById('promptVariables');
+  const promptStatus = document.getElementById('promptStatus');
+  let defaultPrompt = '';
+
+  try {
+    const promptData = await api('/api/parser-prompt');
+    promptEl.value = promptData.prompt;
+    defaultPrompt = promptData.default_prompt;
+
+    // Render variable insertion buttons
+    promptVarsEl.innerHTML = (promptData.variables || []).map((v) =>
+      `<button type="button" class="prompt-var-btn" data-var="${escapeHtml(v.key)}" title="${escapeHtml(v.description)}">${escapeHtml(v.key)}</button>`
+    ).join('');
+  } catch (err) {
+    promptEl.value = '(Failed to load prompt)';
+    promptEl.disabled = true;
+  }
+
+  // Insert variable at cursor position
+  promptVarsEl.addEventListener('click', (e) => {
+    const btn = e.target.closest('.prompt-var-btn');
+    if (!btn) return;
+    const varText = btn.dataset.var;
+    const start = promptEl.selectionStart;
+    const end = promptEl.selectionEnd;
+    const before = promptEl.value.slice(0, start);
+    const after = promptEl.value.slice(end);
+    promptEl.value = before + varText + after;
+    promptEl.focus();
+    promptEl.selectionStart = promptEl.selectionEnd = start + varText.length;
+  });
+
+  // Save prompt
+  document.getElementById('savePromptBtn').addEventListener('click', async () => {
+    const btn = document.getElementById('savePromptBtn');
+    btn.disabled = true;
+    try {
+      await api('/api/parser-prompt', { method: 'PUT', body: JSON.stringify({ prompt: promptEl.value }) });
+      toast.show('Parser prompt saved', 'success');
+      promptStatus.textContent = 'Saved';
+      setTimeout(() => { promptStatus.textContent = ''; }, 3000);
+    } catch (err) {
+      toast.show('Save failed: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  // Reset to default
+  document.getElementById('resetPromptBtn').addEventListener('click', async () => {
+    if (!confirm('Reset parser prompt to the default? Your custom prompt will be lost.')) return;
+    try {
+      const result = await api('/api/parser-prompt/reset', { method: 'POST' });
+      promptEl.value = result.prompt;
+      toast.show('Prompt reset to default', 'info');
+    } catch (err) {
+      toast.show('Reset failed: ' + err.message, 'error');
+    }
+  });
+
+  // Ctrl/Cmd+S shortcut to save prompt when textarea is focused
+  promptEl.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 's') {
+      e.preventDefault();
+      document.getElementById('savePromptBtn').click();
+    }
+  });
 }
 
 // Route by hash on load
-const initialRoute = (location.hash || '#dashboard').slice(1);
+const initialRoute = (location.hash || '#tickets').slice(1);
 navigate(initialRoute);
 window.addEventListener('hashchange', () => navigate(location.hash.slice(1)));

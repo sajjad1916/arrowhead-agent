@@ -1,10 +1,14 @@
 // Monday.com GraphQL client.
 const fetch = require('node-fetch');
+const fs = require('fs');
+const path = require('path');
 const logger = require('../utils/logger');
 
 const API_URL = 'https://api.monday.com/v2';
+const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
 
-const COLS = {
+// Default column mappings — used when no UI override is saved
+const DEFAULT_COLS = {
   quotes: {
     stage: 'color_mm2a4vwv',
     client_name: 'text_mm2ajm0p',
@@ -24,8 +28,27 @@ const COLS = {
   },
 };
 
+// Live accessor — reads settings each call so UI saves take effect immediately
+function _readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+  } catch { return {}; }
+}
+
+// COLS is a getter so column overrides from settings are picked up
+const COLS = new Proxy(DEFAULT_COLS, {
+  get(target, prop) {
+    const s = _readSettings();
+    if (prop === 'quotes' && s.monday_cols_quotes) return { ...target.quotes, ...s.monday_cols_quotes };
+    if (prop === 'properties' && s.monday_cols_properties) return { ...target.properties, ...s.monday_cols_properties };
+    return target[prop];
+  },
+});
+
 function getKey() {
-  return process.env.MONDAY_API_KEY;
+  // Settings (UI-saved) takes priority, then env var
+  const s = _readSettings();
+  return s.monday_api_key || process.env.MONDAY_API_KEY;
 }
 
 function isConfigured() {
@@ -53,7 +76,13 @@ async function graphql(query, variables = {}) {
 }
 
 function getPropertyBoardId() {
-  return process.env.MONDAY_PROPERTY_BOARD_ID || '5027768585';
+  const s = _readSettings();
+  return s.monday_input_board_id || process.env.MONDAY_PROPERTY_BOARD_ID || '5027768585';
+}
+
+function getQuotesBoardId() {
+  const s = _readSettings();
+  return s.monday_output_board_id || process.env.MONDAY_QUOTES_BOARD_ID || '5027768579';
 }
 
 function mapPropertyItem(item) {
@@ -217,7 +246,7 @@ async function createTicket({
   flag,
   propertyManager,
 }) {
-  const boardId = process.env.MONDAY_QUOTES_BOARD_ID || '5027768579';
+  const boardId = getQuotesBoardId();
   const columnValues = {
     [COLS.quotes.stage]: { index: 0 },
     [COLS.quotes.client_name]: clientName || '',
@@ -249,7 +278,7 @@ async function createTicket({
 // Returns null if we can't determine (not configured / API error).
 async function countOpenTickets() {
   if (!isConfigured()) return null;
-  const boardId = process.env.MONDAY_QUOTES_BOARD_ID || '5027768579';
+  const boardId = getQuotesBoardId();
   const query = `{
     boards(ids: [${boardId}]) {
       items_page(limit: 500) {
@@ -290,6 +319,41 @@ async function testConnection() {
   }
 }
 
+// Test with a specific API key (used during connect flow before saving)
+async function testConnectionWithKey(apiKey) {
+  try {
+    const res = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: apiKey, 'API-Version': '2023-10' },
+      body: JSON.stringify({ query: '{ me { id name } }' }),
+    });
+    const json = await res.json();
+    if (json.errors) return { ok: false, error: json.errors[0]?.message || 'API error' };
+    return { ok: true, user: json.data?.me };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+}
+
+// Discover boards using a specific key (for connect flow)
+async function discoverBoardsWithKey(apiKey) {
+  const res = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: apiKey, 'API-Version': '2023-10' },
+    body: JSON.stringify({ query: '{ boards(limit: 100) { id name description items_count } }' }),
+  });
+  const json = await res.json();
+  if (json.errors) throw new Error(json.errors[0]?.message || 'API error');
+  return json.data?.boards || [];
+}
+
+// Fetch columns for a specific board
+async function fetchBoardColumns(boardId) {
+  const query = `{ boards(ids: [${boardId}]) { columns { id title type } } }`;
+  const data = await graphql(query);
+  return data.boards?.[0]?.columns || [];
+}
+
 module.exports = {
   isConfigured,
   fetchProperties,
@@ -297,13 +361,18 @@ module.exports = {
   findPropertyLive,
   createTicket,
   testConnection,
+  testConnectionWithKey,
+  discoverBoardsWithKey,
+  fetchBoardColumns,
   countOpenTickets,
   registerWebhook,
   listWebhooks,
   deleteWebhook,
   discoverBoards,
   getPropertyBoardId,
+  getQuotesBoardId,
   urgencyIndex,
   flagIndex,
   COLS,
+  DEFAULT_COLS,
 };

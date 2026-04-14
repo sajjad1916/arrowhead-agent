@@ -44,7 +44,10 @@ function recordTokens(input, output) {
   return stats;
 }
 
-const SYSTEM_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX.
+const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
+const assigner = require('./assigner');
+
+const DEFAULT_SYSTEM_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX.
 
 You receive forwarded messages (texts or emails) from the sales team about client service requests. Your job is to extract structured data from these messages.
 
@@ -59,6 +62,37 @@ Extract the following fields. If a field cannot be determined, set it to null:
 
 Return ONLY a valid JSON object with these fields. No explanation, no markdown, no code fences.`;
 
+function getSystemPrompt() {
+  let prompt = DEFAULT_SYSTEM_PROMPT;
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'));
+    if (settings.parser_prompt && typeof settings.parser_prompt === 'string') {
+      prompt = settings.parser_prompt;
+    }
+  } catch { /* use default */ }
+  return interpolateVariables(prompt);
+}
+
+function interpolateVariables(prompt) {
+  const properties = cache.getProperties();
+  const propertyNames = properties.map((p) => p.name).filter(Boolean);
+  const clientNames = [...new Set(properties.map((p) => p.client_name).filter(Boolean))];
+
+  let assignConfig = { team_members: [], escalation_keywords: [] };
+  try { assignConfig = assigner.readConfig(); } catch { /* defaults */ }
+
+  const workTypes = 'sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services';
+  const today = new Date().toISOString().slice(0, 10);
+
+  return prompt
+    .replace(/\{\{property_list\}\}/g, propertyNames.join(', ') || '(no properties cached)')
+    .replace(/\{\{client_list\}\}/g, clientNames.join(', ') || '(no clients cached)')
+    .replace(/\{\{team_members\}\}/g, assignConfig.team_members.join(', ') || '(no team members)')
+    .replace(/\{\{work_types\}\}/g, workTypes)
+    .replace(/\{\{date\}\}/g, today)
+    .replace(/\{\{escalation_keywords\}\}/g, (assignConfig.escalation_keywords || []).join(', ') || '(none)');
+}
+
 function isConfigured() {
   return !!process.env.OPENROUTER_API_KEY;
 }
@@ -66,6 +100,7 @@ function isConfigured() {
 async function parseWithModel(message, model) {
   const key = process.env.OPENROUTER_API_KEY;
   if (!key) throw new Error('OPENROUTER_API_KEY not set');
+  const systemPrompt = getSystemPrompt();
   const res = await fetch(OPENROUTER_URL, {
     method: 'POST',
     headers: {
@@ -77,7 +112,7 @@ async function parseWithModel(message, model) {
     body: JSON.stringify({
       model,
       messages: [
-        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: message },
       ],
       temperature: 0.1,

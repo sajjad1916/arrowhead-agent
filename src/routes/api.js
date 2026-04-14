@@ -12,8 +12,24 @@ const logger = require('../utils/logger');
 
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
 
+const DEFAULT_PARSER_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX.
+
+You receive forwarded messages (texts or emails) from the sales team about client service requests. Your job is to extract structured data from these messages.
+
+Extract the following fields. If a field cannot be determined, set it to null:
+
+1. client_name: The name of the client company or property management firm requesting work
+2. property_reference: Any mention of a property name, location, or address where work is needed
+3. work_type: The type of maintenance work requested. Common types: sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services
+4. urgency: One of "normal", "urgent", or "asap". Look for signals like "ASAP", "emergency", "urgent", "need this today", "right away", "as soon as possible". Default to "normal" if no urgency signals.
+5. additional_context: Any other relevant details — specific areas of the property, timeline preferences, special instructions, crew preferences, or context added by the person who forwarded the message
+6. forwarder_context: If the person forwarding added their own note (e.g., "from Nathan at Lakeside" or "this is urgent"), capture that separately
+
+Return ONLY a valid JSON object with these fields. No explanation, no markdown, no code fences.`;
+
 const DEFAULT_SETTINGS = {
   demo_mode: true,
+  parser_prompt: DEFAULT_PARSER_PROMPT,
 };
 
 function readSettings() {
@@ -169,7 +185,11 @@ router.get('/settings', async (req, res) => {
   if (connections.monday) {
     connections.monday_live = await monday.testConnection();
   }
-  res.json({ settings, connections });
+  const agent_contact = {
+    email: process.env.AGENT_EMAIL || '',
+    phone: process.env.AGENT_PHONE || process.env.TWILIO_PHONE_NUMBER || '',
+  };
+  res.json({ settings, connections, agent_contact });
 });
 
 router.put('/settings', (req, res) => {
@@ -177,6 +197,185 @@ router.put('/settings', (req, res) => {
   const next = { ...current, ...req.body };
   writeSettings(next);
   res.json(next);
+});
+
+// ---------- Monday.com Connection & Board Config ----------
+
+// Default display labels for agent fields
+const DEFAULT_FIELD_LABELS = {
+  properties: {
+    client_name: 'Client Name',
+    address: 'Address',
+    property_manager: 'Property Manager',
+    manager_phone: 'Manager Phone',
+    manager_email: 'Manager Email',
+  },
+  quotes: {
+    stage: 'Stage',
+    client_name: 'Client Name',
+    address: 'Address',
+    work_type: 'Work Type',
+    urgency: 'Urgency',
+    original_message: 'Original Message',
+    flag: 'Flag',
+    property_manager: 'Property Manager',
+  },
+};
+
+function getFieldLabels() {
+  const settings = readSettings();
+  return {
+    properties: { ...DEFAULT_FIELD_LABELS.properties, ...(settings.monday_field_labels_properties || {}) },
+    quotes: { ...DEFAULT_FIELD_LABELS.quotes, ...(settings.monday_field_labels_quotes || {}) },
+  };
+}
+
+// Current connection state + selected boards + column mappings + labels
+router.get('/monday-config', (req, res) => {
+  const settings = readSettings();
+  const cols = monday.COLS;
+  const labels = getFieldLabels();
+  const connected = monday.isConfigured();
+  res.json({
+    connected,
+    has_key: !!(settings.monday_api_key || process.env.MONDAY_API_KEY),
+    input_board_id: settings.monday_input_board_id || process.env.MONDAY_PROPERTY_BOARD_ID || '',
+    output_board_id: settings.monday_output_board_id || process.env.MONDAY_QUOTES_BOARD_ID || '',
+    quotes: {
+      board_id: monday.getQuotesBoardId(),
+      columns: Object.entries(cols.quotes).map(([field, colId]) => ({
+        field,
+        label: labels.quotes[field] || field,
+        column_id: colId,
+      })),
+    },
+    properties: {
+      board_id: monday.getPropertyBoardId(),
+      columns: Object.entries(cols.properties).map(([field, colId]) => ({
+        field,
+        label: labels.properties[field] || field,
+        column_id: colId,
+      })),
+    },
+  });
+});
+
+// Get just the field labels (used by ticket feed)
+router.get('/field-labels', (req, res) => {
+  res.json(getFieldLabels());
+});
+
+// Save field mappings: labels + column IDs for a board type (properties or quotes)
+router.put('/monday-field-config', (req, res) => {
+  const { board_type, labels, column_ids } = req.body || {};
+  if (!board_type || !['properties', 'quotes'].includes(board_type)) {
+    return res.status(400).json({ error: 'board_type must be "properties" or "quotes"' });
+  }
+  const current = readSettings();
+  if (labels && typeof labels === 'object') {
+    current[`monday_field_labels_${board_type}`] = labels;
+  }
+  if (column_ids && typeof column_ids === 'object') {
+    current[`monday_cols_${board_type}`] = column_ids;
+  }
+  writeSettings(current);
+  res.json({ ok: true });
+});
+
+// Connect: save API key + test it
+router.post('/monday-connect', async (req, res) => {
+  const { api_key } = req.body || {};
+  if (!api_key || typeof api_key !== 'string') {
+    return res.status(400).json({ error: 'api_key is required' });
+  }
+  const result = await monday.testConnectionWithKey(api_key.trim());
+  if (!result.ok) {
+    return res.status(400).json({ error: result.error || 'Connection failed' });
+  }
+  // Save the key
+  const current = readSettings();
+  current.monday_api_key = api_key.trim();
+  writeSettings(current);
+  res.json({ ok: true, user: result.user });
+});
+
+// Disconnect: remove saved key + board selections
+router.post('/monday-disconnect', (req, res) => {
+  const current = readSettings();
+  delete current.monday_api_key;
+  delete current.monday_input_board_id;
+  delete current.monday_output_board_id;
+  writeSettings(current);
+  res.json({ ok: true });
+});
+
+// List boards on the connected account
+router.get('/monday-boards', async (req, res) => {
+  const settings = readSettings();
+  const apiKey = settings.monday_api_key || process.env.MONDAY_API_KEY;
+  if (!apiKey) return res.status(400).json({ error: 'Monday.com not connected' });
+  try {
+    const boards = await monday.discoverBoardsWithKey(apiKey);
+    res.json({ boards });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Save selected input/output boards
+router.put('/monday-boards', (req, res) => {
+  const { input_board_id, output_board_id } = req.body || {};
+  const current = readSettings();
+  if (input_board_id !== undefined) current.monday_input_board_id = input_board_id;
+  if (output_board_id !== undefined) current.monday_output_board_id = output_board_id;
+  writeSettings(current);
+  res.json({ ok: true, input_board_id: current.monday_input_board_id, output_board_id: current.monday_output_board_id });
+});
+
+// Fetch columns for a board
+router.get('/monday-columns/:boardId', async (req, res) => {
+  if (!monday.isConfigured()) return res.status(400).json({ error: 'Monday.com not connected' });
+  try {
+    const columns = await monday.fetchBoardColumns(req.params.boardId);
+    res.json({ columns });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---------- Parser Prompt ----------
+router.get('/parser-prompt', (req, res) => {
+  const settings = readSettings();
+  res.json({
+    prompt: settings.parser_prompt || DEFAULT_PARSER_PROMPT,
+    default_prompt: DEFAULT_PARSER_PROMPT,
+    variables: [
+      { key: '{{property_list}}', label: 'Property names', description: 'Comma-separated list of all property names from the cache' },
+      { key: '{{client_list}}', label: 'Client names', description: 'Comma-separated list of all client company names' },
+      { key: '{{team_members}}', label: 'Team members', description: 'Current round-robin team member names' },
+      { key: '{{work_types}}', label: 'Work types', description: 'Common work type categories' },
+      { key: '{{date}}', label: 'Today\'s date', description: 'Current date (YYYY-MM-DD)' },
+      { key: '{{escalation_keywords}}', label: 'Escalation keywords', description: 'Keywords that trigger urgent escalation' },
+    ],
+  });
+});
+
+router.put('/parser-prompt', (req, res) => {
+  const { prompt } = req.body || {};
+  if (typeof prompt !== 'string' || !prompt.trim()) {
+    return res.status(400).json({ error: 'prompt is required and must be a non-empty string' });
+  }
+  const current = readSettings();
+  current.parser_prompt = prompt;
+  writeSettings(current);
+  res.json({ prompt: current.parser_prompt });
+});
+
+router.post('/parser-prompt/reset', (req, res) => {
+  const current = readSettings();
+  current.parser_prompt = DEFAULT_PARSER_PROMPT;
+  writeSettings(current);
+  res.json({ prompt: DEFAULT_PARSER_PROMPT });
 });
 
 // ---------- Demo pipeline ----------

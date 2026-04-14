@@ -14,7 +14,7 @@
   <header class="topbar">
     <!-- Row 1: identity + demo indicator + primary action -->
     <div class="topbar-inner">
-      <a href="#dashboard" data-route="dashboard" class="topbar-brand">
+      <a href="#tickets" data-route="tickets" class="topbar-brand">
         <img src="https://choosearrowhead.com/wp-content/uploads/2026/01/logo-header.png"
              alt="Arrowhead"
              onerror="this.style.display='none'; this.nextElementSibling.style.display='inline';" />
@@ -23,19 +23,7 @@
         <span class="topbar-label">Intake Agent</span>
       </a>
 
-      <div class="topbar-center">
-        <span id="demoModeIndicator" class="demo-indicator" hidden>
-          <span class="demo-indicator-dot"></span>
-          <span class="demo-indicator-text">Demo mode — tickets simulated</span>
-        </span>
-      </div>
-
       <div class="topbar-actions">
-        <button id="openTestBtn" class="btn btn-primary btn-test" type="button">
-          <svg class="btn-test-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-3 10h6l-3 10"/></svg>
-          Test Agent
-        </button>
-
         <div class="menu-wrap">
           <button id="menuToggle" class="icon-btn" type="button" aria-label="Account menu" aria-expanded="false">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg>
@@ -52,11 +40,9 @@
     <!-- Row 2: section tabs -->
     <nav class="topbar-tabs" aria-label="Primary">
       <div class="topbar-tabs-inner">
-        <a href="#dashboard" data-route="dashboard" class="tab">Home</a>
         <a href="#tickets" data-route="tickets" class="tab">Tickets</a>
-        <a href="#properties" data-route="properties" class="tab">Properties</a>
         <a href="#assignment" data-route="assignment" class="tab">Rules</a>
-        <a href="#settings" data-route="settings" class="tab">Connections</a>
+        <a href="#settings" data-route="settings" class="tab">Integration</a>
       </div>
     </nav>
   </header>
@@ -65,53 +51,33 @@
     <section id="pageRoot" class="page-inner"></section>
   </main>
 
-  <!-- Test Agent modal -->
+  <!-- Test Agent modal — compose only -->
   <div id="testModal" class="modal-backdrop" hidden>
-    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="testModalTitle">
+    <div class="modal modal-compact" role="dialog" aria-modal="true" aria-labelledby="testModalTitle">
       <header class="modal-header">
         <div>
-          <div class="modal-eyebrow">Simulate incoming message</div>
           <h2 id="testModalTitle" class="modal-title">Test Agent</h2>
         </div>
         <button id="modalCloseBtn" class="modal-close" aria-label="Close">×</button>
       </header>
 
       <div class="modal-body">
-        <div id="composeView" class="compose-view">
-          <div class="source-toggle" role="tablist" aria-label="Message source">
-            <button type="button" class="source-btn active" data-source="email" role="tab">
-              <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
-              Email
-            </button>
-            <button type="button" class="source-btn" data-source="sms" role="tab">
-              <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-              SMS
-            </button>
-          </div>
-
-          <label class="field-label">Quick templates</label>
-          <div id="modalTemplates" class="template-chips"></div>
-
-          <label class="field-label">Message</label>
-          <textarea id="modalMessage" class="textarea" rows="7" placeholder="Pick a template above, or paste any message here..."></textarea>
-          <div class="compose-hint muted">Tip: press <kbd>⌘</kbd>+<kbd>Enter</kbd> to run</div>
+        <div class="source-toggle" role="tablist" aria-label="Message source">
+          <button type="button" class="source-btn active" data-source="email" role="tab">
+            <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            Email
+          </button>
+          <button type="button" class="source-btn" data-source="sms" role="tab">
+            <svg class="source-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            SMS
+          </button>
         </div>
 
-        <div id="modalPipeline" class="pipeline-view-modal" hidden>
-          <div id="modalPipelineSteps" class="pipeline-steps"></div>
-        </div>
+        <label class="field-label">Quick templates</label>
+        <div id="modalTemplates" class="template-chips"></div>
 
-        <div id="modalSuccess" class="success-view" hidden>
-          <div class="success-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
-          </div>
-          <h3 class="success-title">Ticket created</h3>
-          <div id="successSummary" class="success-summary"></div>
-          <div class="success-actions">
-            <a id="successMondayLink" class="btn btn-primary" href="#" target="_blank" rel="noopener" hidden>View on Monday.com →</a>
-            <button id="successAnotherBtn" type="button" class="btn btn-ghost">Run another</button>
-          </div>
-        </div>
+        <label class="field-label">Message</label>
+        <textarea id="modalMessage" class="textarea" rows="5" placeholder="Pick a template above, or paste any message here..."></textarea>
       </div>
 
       <footer class="modal-footer">
@@ -127,183 +93,174 @@
        Templates — minimal home + admin pages (deferred)
        ================================================ -->
 
-  <template id="tpl-dashboard">
-    <!-- Hero: simple status with a pointer to the real CRM -->
-    <div class="hero">
-      <div id="statusDot" class="status-dot running"></div>
-      <div class="hero-content">
-        <div class="hero-eyebrow">Agent status</div>
-        <h1 class="hero-title" id="heroTitle">Running</h1>
-        <p class="hero-sub" id="heroSub">Connected to Monday.com. Forward a message to create a ticket.</p>
+  <template id="tpl-tickets">
+    <!-- Top bar -->
+    <div class="topbar-panel">
+      <!-- Status + Demo + Test -->
+      <div class="tp-left">
+        <div class="tp-status">
+          <div id="statusDot" class="status-dot running"></div>
+          <div class="tp-status-text">
+            <span class="tp-status-label" id="heroTitle">Running</span>
+            <span class="tp-status-sub" id="heroSub">Tickets simulated</span>
+          </div>
+        </div>
+        <span id="demoIndicatorInline" class="tp-demo" hidden>Demo</span>
+        <button id="openTestBtnInline" class="tp-test-btn" type="button">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m13 2-3 10h6l-3 10"/></svg>
+          Test
+        </button>
       </div>
-      <a id="mondayLink" class="hero-link" href="https://getsagan-company.monday.com/boards/5027768579" target="_blank" rel="noopener">
-        Open board on Monday.com
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-      </a>
-    </div>
 
-    <!-- Compact stats strip — single line, pill-style -->
+      <!-- Email card -->
+      <div class="tp-contact" id="contactEmail" hidden>
+        <svg class="tp-contact-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+        <div class="tp-contact-body">
+          <div class="tp-contact-label">Forward emails to</div>
+          <div class="tp-contact-value" id="agentEmail">—</div>
+        </div>
+        <button class="tp-copy" data-copy-target="agentEmail" title="Copy email address" aria-label="Copy email address">Copy</button>
+      </div>
+
+      <!-- Phone card -->
+      <div class="tp-contact" id="contactPhone" hidden>
+        <svg class="tp-contact-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+        <div class="tp-contact-body">
+          <div class="tp-contact-label">Forward texts to</div>
+          <div class="tp-contact-value" id="agentPhone">—</div>
+        </div>
+        <button class="tp-copy" data-copy-target="agentPhone" title="Copy phone number" aria-label="Copy phone number">Copy</button>
+      </div>
+    </div>
+    <div class="tp-hint" id="demoHint" hidden>Test mode — tickets won't be sent to Monday.com</div>
+
+    <!-- Stats strip -->
     <div class="stats-strip" id="statsStrip"></div>
 
-    <!-- Tiny activity list -->
-    <div class="activity">
-      <div class="activity-head">
-        <div class="activity-title">Recent</div>
-        <div class="activity-meta" id="activityMeta"></div>
+    <h1 class="sr-only">Incoming Requests</h1>
+    <div class="feed-toolbar">
+      <div class="feed-meta" id="ticketsMeta">—</div>
+      <div class="feed-filters">
+        <input id="ticketSearch" class="input input-sm" placeholder="Search..." aria-label="Search tickets" />
+        <select id="fUrgency" class="select select-sm" aria-label="Filter by urgency">
+          <option value="">All urgencies</option>
+          <option value="normal">Normal</option>
+          <option value="urgent">Urgent</option>
+          <option value="asap">ASAP</option>
+        </select>
+        <select id="fFlag" class="select select-sm" aria-label="Filter by status">
+          <option value="">All statuses</option>
+          <option value="ok">OK</option>
+          <option value="location_not_found">Location Not Found</option>
+          <option value="needs_review">Needs Review</option>
+          <option value="needs_assignment">Needs Assignment</option>
+        </select>
+        <select id="fSource" class="select select-sm" aria-label="Filter by source">
+          <option value="">All sources</option>
+          <option value="sms">SMS</option>
+          <option value="email">Email</option>
+        </select>
       </div>
-      <ul id="activityList" class="activity-list"></ul>
-      <a href="#tickets" data-route="tickets" class="activity-footer" id="activityFooter" hidden>See all tickets →</a>
     </div>
-  </template>
-
-  <template id="tpl-tickets">
-<div class="section">
-      <div class="section-header">
-        <div class="section-title-group">
-          <h2>All tickets</h2>
-          <p class="section-sub muted" id="ticketsMeta">—</p>
-        </div>
-        <div class="filters">
-          <input id="ticketSearch" class="input input-sm" placeholder="Search tickets..." />
-          <select id="fUrgency" class="select select-sm">
-            <option value="">All urgencies</option>
-            <option value="normal">Normal</option>
-            <option value="urgent">Urgent</option>
-            <option value="asap">ASAP</option>
-          </select>
-          <select id="fFlag" class="select select-sm">
-            <option value="">All flags</option>
-            <option value="ok">OK</option>
-            <option value="location_not_found">Location Not Found</option>
-            <option value="needs_review">Needs Review</option>
-            <option value="needs_assignment">Needs Assignment</option>
-          </select>
-          <select id="fSource" class="select select-sm">
-            <option value="">All sources</option>
-            <option value="sms">SMS</option>
-            <option value="email">Email</option>
-          </select>
-        </div>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Date</th><th>Ticket</th><th>Client</th><th>Property</th><th>Work</th><th>Urgency</th><th>Assignee</th><th>Flag</th><th>Source</th>
-            </tr>
-          </thead>
-          <tbody id="ticketsTableBody"></tbody>
-        </table>
-      </div>
-      <div class="pager" id="ticketsPager" hidden>
-        <button id="ticketsPrev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
-        <span class="pager-info" id="ticketsPagerInfo">—</span>
-        <button id="ticketsNext" class="btn btn-ghost btn-sm" type="button">Next →</button>
-      </div>
+    <div class="feed" id="ticketsFeed"></div>
+    <div class="pager" id="ticketsPager" hidden>
+      <button id="ticketsPrev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
+      <span class="pager-info" id="ticketsPagerInfo">—</span>
+      <button id="ticketsNext" class="btn btn-ghost btn-sm" type="button">Next →</button>
     </div>
   </template>
 
   <template id="tpl-assignment">
 <div class="section">
       <div class="section-header"><h2>Assignment rules</h2></div>
-      <label class="field-label">Team members (round-robin)</label>
-      <div id="teamMembers" class="chips-editable"></div>
-      <div class="row">
-        <input id="newMember" class="input" placeholder="Add team member..." />
-        <button id="addMemberBtn" class="btn btn-secondary">Add</button>
-      </div>
+      <p class="muted" style="margin: 0 0 18px; max-width: 620px;">
+        When a new request comes in, the agent assigns it using this priority:
+        <strong>1) Escalation</strong> (ASAP urgency or keyword match) →
+        <strong>2) Returning customer</strong> (same CSR as their last job) →
+        <strong>3) Default assignee</strong> (fallback).
+      </p>
 
-      <label class="field-label">Current round-robin position</label>
-      <div class="muted" id="currentIdx">—</div>
+      <label class="field-label">Default assignee</label>
+      <p class="muted" style="margin: 0 0 6px; font-size: 12px;">New customers and unmatched requests are assigned here.</p>
+      <input id="defaultAssignee" class="input" style="max-width: 280px;" />
+
+      <div style="height: 18px;"></div>
 
       <label class="field-label">Escalation contact</label>
-      <input id="escalationTo" class="input" />
+      <p class="muted" style="margin: 0 0 6px; font-size: 12px;">ASAP tickets and keyword matches go to this person.</p>
+      <input id="escalationTo" class="input" style="max-width: 280px;" />
+
+      <div style="height: 18px;"></div>
 
       <label class="field-label">Escalation keywords</label>
+      <p class="muted" style="margin: 0 0 6px; font-size: 12px;">If the message contains any of these, the ticket escalates.</p>
       <div id="escalationKeywords" class="chips-editable"></div>
       <div class="row">
         <input id="newKeyword" class="input" placeholder="Add keyword..." />
         <button id="addKeywordBtn" class="btn btn-secondary">Add</button>
       </div>
 
-      <div class="row">
-        <button id="saveAssignmentBtn" class="btn btn-primary">Save</button>
-      </div>
-    </div>
-  </template>
+      <div style="height: 18px;"></div>
 
-  <template id="tpl-properties">
-<div class="section">
-      <div class="section-header">
-        <div class="section-title-group">
-          <h2>Properties</h2>
-          <p class="section-sub">Live mirror of your Monday.com <strong>Master Property Listing</strong>. Updates automatically when you add or edit a property on the board — no refresh needed.</p>
-        </div>
-        <div class="filters">
-          <input id="propSearch" class="input" placeholder="Search properties..." />
-          <button id="refreshCacheBtn" class="btn btn-ghost btn-sm" title="Force a full resync from Monday.com (normally automatic)">Force resync</button>
-          <a href="https://getsagan-company.monday.com/boards/5027768585" target="_blank" rel="noopener" class="btn-monday-link">
-            Open board on Monday.com
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 17 17 7M8 7h9v9"/></svg>
-          </a>
-        </div>
-      </div>
-      <div class="cache-health" id="cacheHealth">
-        <span class="cache-health-dot" id="cacheHealthDot"></span>
-        <span class="cache-health-text" id="cacheHealthText">—</span>
-        <span class="cache-health-meta muted" id="cacheMeta">—</span>
-      </div>
-      <div class="table-wrap">
-        <table class="data-table">
-          <thead>
-            <tr><th>Property</th><th>Client</th><th>Address</th><th>Manager</th><th>Phone</th></tr>
-          </thead>
-          <tbody id="propTableBody"></tbody>
-        </table>
-      </div>
-      <div class="pager" id="propPager" hidden>
-        <button id="propPrev" class="btn btn-ghost btn-sm" type="button">← Prev</button>
-        <span class="pager-info" id="propPagerInfo">—</span>
-        <button id="propNext" class="btn btn-ghost btn-sm" type="button">Next →</button>
+      <label class="field-label">Returning customer logic</label>
+      <p class="muted" style="margin: 0 0 6px; font-size: 12px;">When a known client submits a new request, the agent looks up their most recent ticket and assigns the same CSR. This runs automatically from ticket history — no configuration needed.</p>
+
+      <div class="row" style="margin-top: 18px;">
+        <button id="saveAssignmentBtn" class="btn btn-primary">Save</button>
       </div>
     </div>
   </template>
 
   <template id="tpl-settings">
 <div class="section">
-      <div class="section-header"><h2>Connections</h2></div>
+      <div class="section-header"><h2>Integration</h2></div>
 
-      <div class="setting-row">
-        <div class="setting-meta">
-          <div class="setting-title">Demo mode</div>
-          <div class="muted">When on, the agent simulates tickets instead of sending them to Monday.com. Use for testing without polluting the real board.</div>
+      <h3>Monday.com</h3>
+
+      <!-- Connect step -->
+      <div id="mondayConnect">
+        <p class="muted" style="margin: 0 0 10px;">Enter your Monday.com API key to connect the agent to your workspace.</p>
+        <div class="row" style="gap: 8px; align-items: flex-end;">
+          <input id="mondayApiKey" class="input" type="password" placeholder="Monday.com API key" style="flex: 1; max-width: 420px;" />
+          <button id="mondayConnectBtn" class="btn btn-primary btn-sm" type="button">Connect</button>
         </div>
-        <label class="switch">
-          <input id="demoToggle" type="checkbox" />
-          <span class="switch-slider"></span>
-        </label>
+        <div class="muted" style="margin-top: 6px; font-size: 11px;" id="mondayConnectStatus"></div>
+      </div>
+
+      <!-- Connected state: board selectors + column maps -->
+      <div id="mondayConnected" hidden>
+        <div class="monday-connected-bar">
+          <span class="monday-connected-label">Connected to Monday.com</span>
+          <button id="mondayDisconnectBtn" class="btn btn-ghost btn-sm" type="button">Disconnect</button>
+        </div>
+
+        <div style="height: 16px;"></div>
+
+        <label class="field-label">Incoming — Property Lookup Board</label>
+        <p class="muted" style="margin: 0 0 6px; font-size: 12px;">Used to match incoming requests to known properties.</p>
+        <select id="mondayInputBoard" class="select" style="max-width: 400px;"></select>
+        <div class="field-map" id="fieldMapProperties" style="margin-top: 10px;"></div>
+
+        <div style="height: 18px;"></div>
+
+        <label class="field-label">Outgoing — New Tickets Board</label>
+        <p class="muted" style="margin: 0 0 6px; font-size: 12px;">Where the agent creates new tickets from parsed messages.</p>
+        <select id="mondayOutputBoard" class="select" style="max-width: 400px;"></select>
+        <div class="field-map" id="fieldMapQuotes" style="margin-top: 10px;"></div>
       </div>
 
       <div class="section-divider"></div>
 
-      <h3>Service status</h3>
-      <div class="conn-grid" id="connGrid"></div>
+      <h3>Parser prompt</h3>
+      <p class="muted" style="margin: 0 0 12px;">The system prompt sent to the AI when parsing incoming messages. Use dynamic variables to inject live data at parse time.</p>
+      <div class="prompt-variables" id="promptVariables"></div>
+      <textarea id="parserPrompt" class="textarea prompt-textarea" rows="14" spellcheck="false"></textarea>
+      <div class="prompt-actions">
+        <button id="savePromptBtn" class="btn btn-primary btn-sm" type="button">Save prompt</button>
+        <button id="resetPromptBtn" class="btn btn-ghost btn-sm" type="button">Reset to default</button>
+        <span class="prompt-status muted" id="promptStatus"></span>
+      </div>
 
-      <div class="section-divider"></div>
-      <h3>Credentials</h3>
-      <div class="cred-row">
-        <span class="muted">Username:</span>
-        <strong id="currentUser">—</strong>
-        <button class="btn-copy" data-copy-target="currentUser" title="Copy username">Copy</button>
-      </div>
-      <div class="cred-row">
-        <span class="muted">Password:</span>
-        <code id="currentPassword">—</code>
-        <button class="btn-copy" data-copy-target="currentPassword" title="Copy password">Copy</button>
-      </div>
-      <div class="row">
-        <button id="regenPwdBtn" class="btn btn-secondary">Regenerate password</button>
-      </div>
     </div>
   </template>
 
