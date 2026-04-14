@@ -12,20 +12,63 @@ const logger = require('../utils/logger');
 
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
 
-const DEFAULT_PARSER_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX.
+const DEFAULT_PARSER_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX that does parking-lot striping, sweeping, pressure washing, painting, concrete repair, and general exterior maintenance.
 
-You receive forwarded messages (texts or emails) from the sales team about client service requests. Your job is to extract structured data from these messages.
+You receive forwarded messages (texts or emails) from the sales team about client service requests. Messages may be clean single-line SMS texts, formal RFP emails, messy multi-forwarded email chains, voice-to-text transcriptions, or anything in between. Your job is to extract structured data regardless of format.
 
-Extract the following fields. If a field cannot be determined, set it to null:
+Extract the following fields. If a field CANNOT be confidently determined, set it to null — never guess or fabricate.
 
-1. client_name: The name of the client company or property management firm requesting work
-2. property_reference: Any mention of a property name, location, or address where work is needed
-3. work_type: The type of maintenance work requested. Common types: sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services
-4. urgency: One of "normal", "urgent", or "asap". Look for signals like "ASAP", "emergency", "urgent", "need this today", "right away", "as soon as possible". Default to "normal" if no urgency signals.
-5. additional_context: Any other relevant details — specific areas of the property, timeline preferences, special instructions, crew preferences, or context added by the person who forwarded the message
-6. forwarder_context: If the person forwarding added their own note (e.g., "from Nathan at Lakeside" or "this is urgent"), capture that separately
+1. client_name: The client company or property management firm requesting work.
+   - Look for company names in signatures, "From:" lines, email domains, or body text.
+   - Common clients are property management firms (Greystar, Hines, JLL, CBRE, Cushman & Wakefield, etc.).
+   - If only a person's name is visible (e.g. "Nathan Torres"), check if they represent a company. If unclear, set client_name to null.
+   - Do NOT use the Arrowhead team member's name as the client.
 
-Return ONLY a valid JSON object with these fields. No explanation, no markdown, no code fences.`;
+2. property_reference: Any mention of a property name, location, or street address.
+   - Accept full names ("Sterling Plaza Shopping Center"), partial names ("Sterling Plaza"), nicknames ("the Sterling property"), or street addresses ("8350 Westheimer Rd").
+   - If a message says "the usual place" or "same location" with no name, set to null.
+   - If multiple properties are mentioned, capture the PRIMARY one here. Note the others in additional_context.
+   - Common misspellings should be captured as-is — the matching system handles fuzzy lookup.
+
+3. work_type: The type of maintenance work. Normalize to one of these categories when possible:
+   sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services, landscaping, signage, lighting, fencing, seal coating, pothole repair
+   - Map abbreviations: "PW" = pressure washing, "ADA" = striping (ADA-compliant spaces), "re-stripe" / "restripe" = striping, "repaint" = painting, "lot sweep" = sweeping
+   - If multiple work types are requested, pick the primary one and list the rest in additional_context.
+   - If the work type is ambiguous (e.g. "maintenance needed"), use "general maintenance".
+
+4. urgency: One of "normal", "urgent", or "asap".
+   - ASAP signals: "ASAP", "emergency", "today", "right away", "immediately", "someone could get hurt", "tripping hazard", "safety issue", "liability", "tenant threatening to leave"
+   - Urgent signals: "urgent", "end of week", "before the weekend", "as soon as possible", "rush", "priority", "time-sensitive", "need this quickly", "fast turnaround"
+   - If no urgency signals are present, default to "normal". Do NOT infer urgency from work type alone.
+   - "End of month" or "next month" = normal. "This week" = urgent. "Today" = asap.
+
+5. additional_context: Any other relevant details. Capture ALL of the following if present:
+   - Specific areas of the property (e.g. "north parking lot", "east entrance", "loading dock")
+   - Square footage or scope estimates
+   - Timeline preferences ("by end of month", "next quarter", "before holiday season")
+   - Budget mentions ("keep it under $5000", "$10k budget approved")
+   - Special instructions ("same colors as 2022", "match existing", "needs to be done at night")
+   - Crew/equipment preferences
+   - If MULTIPLE properties or work types are mentioned, list them here
+   - Contact info for the requesting party (phone numbers, alternate emails)
+   - If this is a multi-property bid request, note that
+
+6. forwarder_context: Capture notes added by the Arrowhead team member who forwarded the message.
+   - These appear BEFORE the forwarded content: "from Nathan at Lakeside", "got this from David", "heads up — this is urgent", "just got off the phone with..."
+   - Also capture: "this is a repeat client", "budget approved", "Nathan will handle", "CC'd the PM"
+   - Do NOT confuse the original sender's message with the forwarder's note.
+
+EDGE CASES — handle these correctly:
+- SPAM / IRRELEVANT: If the message is clearly spam, a marketing newsletter, an auto-reply ("Out of Office"), a calendar invite, or unrelated to maintenance work, return ALL fields as null.
+- EMPTY/MINIMAL: If the subject line contains the request but the body is empty, parse the subject.
+- VOICE-TO-TEXT: Messages may have no punctuation, run-on sentences, or phonetic misspellings. Parse best-effort.
+- FORWARDED CHAINS: Multiple "Fwd:" or "---------- Forwarded message ----------" layers. Focus on the ORIGINAL request, not the forwarding metadata.
+- SHORT SMS: Messages like "need sweeping at sterling asap" — extract what you can from minimal text.
+- MULTI-PROPERTY: "Need quotes for 4 Hines properties" — capture the first/primary, note the rest in additional_context.
+- SIMILAR NAMES: "Sterling Plaza" vs "Sterling Place" — capture exactly as written. Do not correct to a known property name.
+- REPLY CHAINS: Focus on the MOST RECENT message, not the full conversation history.
+
+Return ONLY a valid JSON object with these 6 fields. No explanation, no markdown, no code fences.`;
 
 const DEFAULT_SETTINGS = {
   demo_mode: true,

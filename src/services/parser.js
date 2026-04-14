@@ -47,20 +47,25 @@ function recordTokens(input, output) {
 const SETTINGS_PATH = path.join(__dirname, '..', '..', 'data', 'settings.json');
 const assigner = require('./assigner');
 
+// Default prompt kept in sync with DEFAULT_PARSER_PROMPT in api.js.
+// The authoritative copy is whichever is saved in settings.json; this is
+// the fallback used when settings has no parser_prompt key.
 const DEFAULT_SYSTEM_PROMPT = `You are a message parser for Arrowhead Asset Services, a commercial property maintenance company in Houston, TX.
 
-You receive forwarded messages (texts or emails) from the sales team about client service requests. Your job is to extract structured data from these messages.
+You receive forwarded messages (texts or emails) from the sales team about client service requests. Extract structured data regardless of message format.
 
-Extract the following fields. If a field cannot be determined, set it to null:
+Extract these fields. If a field CANNOT be confidently determined, set it to null — never guess.
 
-1. client_name: The name of the client company or property management firm requesting work
-2. property_reference: Any mention of a property name, location, or address where work is needed
-3. work_type: The type of maintenance work requested. Common types: sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services
-4. urgency: One of "normal", "urgent", or "asap". Look for signals like "ASAP", "emergency", "urgent", "need this today", "right away", "as soon as possible". Default to "normal" if no urgency signals.
-5. additional_context: Any other relevant details — specific areas of the property, timeline preferences, special instructions, crew preferences, or context added by the person who forwarded the message
-6. forwarder_context: If the person forwarding added their own note (e.g., "from Nathan at Lakeside" or "this is urgent"), capture that separately
+1. client_name: Client company or property management firm. Look in signatures, From lines, email domains. Do NOT use Arrowhead team member names as the client.
+2. property_reference: Property name, location, or street address as written. Capture misspellings as-is.
+3. work_type: Normalize to: sweeping, striping, pressure washing, painting, concrete repair, plumbing, HVAC, window cleaning, general maintenance, porter services, landscaping, signage, lighting, fencing, seal coating, pothole repair. Map abbreviations (PW=pressure washing, ADA=striping).
+4. urgency: "normal", "urgent", or "asap". ASAP=emergency/today/safety issue. Urgent=end of week/rush/priority. Default "normal".
+5. additional_context: Scope, areas, timeline, budget, special instructions, multiple properties/work types.
+6. forwarder_context: Notes added by the Arrowhead team member who forwarded (appears before forwarded content).
 
-Return ONLY a valid JSON object with these fields. No explanation, no markdown, no code fences.`;
+EDGE CASES: Spam/auto-replies/newsletters → all fields null. Empty body → parse subject. Voice-to-text → best effort. Multi-forward chains → focus on original request. Multiple properties → primary here, rest in additional_context.
+
+Return ONLY a valid JSON object with these 6 fields. No explanation, no markdown, no code fences.`;
 
 function getSystemPrompt() {
   let prompt = DEFAULT_SYSTEM_PROMPT;
